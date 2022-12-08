@@ -46,6 +46,12 @@ Please [email me](yongzhili@pku.edu.cn) if you require a copy of the paper.
 # Conference Paper
 
 <!-- 1. Wei Li, Mounir Ghogho, **Junqing Zhang**, Des McLernon, Jing Lei and Syed Ali Raza Zaidi, “Design of an Energy-Efficient Multidimensional Secure Constellation for 5G Communications,” in _Proc. IEEE ICC Workshop on Wireless Physical Layer Security_, Shanghai, China, May 2019. -->
+
+1. Yang Jin, **Yongzhi Li**, Zehuan Yuan, Yadong MU,
+    _"Embracing Consistency: A One-Stage Approach for Spatio-Temporal Video Grounding"_, 
+    NeurIPS 2022[[pdf](https://openreview.net/forum?id=NzFtM5Pzvm)]
+    
+
 1. Chenchen Liu, **Yongzhi Li**, Kangqi Ma, Duo Zhang, Peijun Bao, Yadong Mu,   
 
     _"Learning 3-D Human Pose Estimation from Catadioptric Videos"_, 
