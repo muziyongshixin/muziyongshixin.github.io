@@ -28,6 +28,7 @@ Before that, I received my bachelor's degree in computer science from the School
 
 👉 [Click Here](https://www.liyongzhi.xyz/3d/#/olympic) -->
 - One paper accepted by NeurIPS 2022.
+
   [Embracing Consistency: A One-Stage Approach for Spatio-Temporal Video Grounding]({{ site.url }}/publication/)
 
 - One paper accepted by IJCAI 2021.
