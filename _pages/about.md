@@ -86,6 +86,8 @@ Before that, I received my bachelor's degree in computer science from the School
 ## Welcome
 
 <div >
-Welcome to my homepage, you are the <span data-hk-page="current" display:inline> - </span>th visitor!
+
+<script async src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script>
+            <span id="busuanzi_container_site_pv">Welcome to my homepage, you are the<span id="busuanzi_value_site_pv"></span>th visitor</span>
 <img align="center" width="200" src="{{ site.url }}/images/static/visited.gif" alt="" display:inline>
 </div>
