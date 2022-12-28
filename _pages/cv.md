@@ -28,6 +28,7 @@ redirect_from:
 
   - Mainly working on visual search in video content, the system is widely applied in e-commerce products retrieval as well as advertisements recall and recommendation.
   - Responsible for multi-modal research, as well as feature optimization and performance improvement of advertising systems.
+  
   ---
 
 - **Algorithm Engineer Intern in New Retail Intelligent Engine Business Group, Alibaba Group**. (2020.6-2020.9)
