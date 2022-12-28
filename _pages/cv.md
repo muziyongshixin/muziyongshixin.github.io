@@ -26,8 +26,8 @@ redirect_from:
 
 - **Computer Vision Algorithm Engineer in AILab, ByteDance.Inc**. (2021.7 - NAN)
 
-  - Mainly responsible for multi-modal research, as well as feature optimization and performance improvement of advertising systems.
-
+  - Mainly working on visual search in video content, the system is widely applied in e-commerce products retrieval as well as advertisements recall and recommendation.
+  - Responsible for multi-modal research, as well as feature optimization and performance improvement of advertising systems.
   ---
 
 - **Algorithm Engineer Intern in New Retail Intelligent Engine Business Group, Alibaba Group**. (2020.6-2020.9)
@@ -67,6 +67,10 @@ redirect_from:
 
 ## Publications
 
+1. Yang Jin, **Yongzhi Li**, Zehuan Yuan, Yadong MU,
+  _"Embracing Consistency: A One-Stage Approach for Spatio-Temporal Video Grounding"_, 
+  NeurIPS 2022[[pdf](https://openreview.net/forum?id=NzFtM5Pzvm)]
+
 1. Chenchen Liu, **Yongzhi Li**, Kangqi Ma, Duo Zhang, Peijun Bao, Yadong Mu,   
     _"Learning 3-D Human Pose Estimation from Catadioptric Videos"_, 
     The 30th International Joint Conference on Artificial Intelligence (IJCAI) 2021.[[pdf](https://www.ijcai.org/proceedings/2021/0118.pdf)] [[bibtex](https://scholar.googleusercontent.com/scholar.bib?q=info:mabje6rmGrQJ:scholar.google.com/&output=citation&scisdr=CgW8BvtKEKvryOacCOo:AAGBfm0AAAAAYW6aEOow2GSXKWvFTJgufoT2fLoPSMSy&scisig=AAGBfm0AAAAAYW6aEPSMQb5FCwE3G9bcTwVmcP7HHrFB&scisf=4&ct=citation&cd=-1&hl=zh-CN)]
@@ -104,7 +108,12 @@ IEEE International Conference on Multimedia and Expo (ICME) 2021.[[pdf](https://
 
 Most projects and introductions are shown in the [project page]({{ site.url }}/projects/)
 
+## Academic Service
+
+- Reviewer of CVPR 2023
+- Reviewer of Neural Computing
+
 ## Skills
 
-- Familiar with Python, Java
+- Familiar with Python, Java, Golang
 - Proficient in using Pytorch, and familiar with TensorFlow.
