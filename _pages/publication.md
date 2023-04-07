@@ -49,6 +49,12 @@ Please [email me](yongzhili@pku.edu.cn) if you require a copy of the paper.
 
 1. Yang Jin, **Yongzhi Li**, Zehuan Yuan, Yadong MU,
 
+    _"Learning Instance-Level Representation for Large-Scale Multi-Modal Pretraining in E-commerce"_, 
+    
+    IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2023. 
+
+1. Yang Jin, **Yongzhi Li**, Zehuan Yuan, Yadong MU,
+
     _"Embracing Consistency: A One-Stage Approach for Spatio-Temporal Video Grounding"_, 
     
     NeurIPS 2022[[pdf](https://openreview.net/forum?id=NzFtM5Pzvm)]

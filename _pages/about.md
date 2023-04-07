@@ -27,6 +27,10 @@ Before that, I received my bachelor's degree in computer science from the School
 <!-- <font color=orange> 🎉 The 2022 Winter Olympics will be held in Beijing, China. Want a cute Bing DwenDwen mascot 🐼? </font> 
 
 👉 [Click Here](https://www.liyongzhi.xyz/3d/#/olympic) -->
+- One paper acctpted by CVPR 2023.
+
+  [Learning Instance-Level Representation for Large-Scale Multi-Modal Pretraining in E-commerce]({{ site.url }}/publication/)
+
 - One paper accepted by NeurIPS 2022.
 
   [Embracing Consistency: A One-Stage Approach for Spatio-Temporal Video Grounding]({{ site.url }}/publication/)
@@ -34,10 +38,6 @@ Before that, I received my bachelor's degree in computer science from the School
 - One paper accepted by IJCAI 2021.
 
   [Learning 3-D Human Pose Estimation from Catadioptric Videos]({{ site.url }}/publication/)
-
-- One paper accepted by IEEE International Conference on Multimedia and Expo (ICME) 2021.
-
-  [Efficient Fine-Grained Visual-Text Search Using Adversarially-Learned Hash Codes]({{ site.url }}/publication/)
 
 ## Research Area
 
