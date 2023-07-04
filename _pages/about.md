@@ -50,8 +50,10 @@ Before that, I received my bachelor's degree in computer science from the School
 
 - **Computer Vision Algorithm Engineer in AILab, ByteDance.Inc**. (2021.7 - NAN)
 
-  - Mainly working on visual search in video content, the system is widely applied in e-commerce products retrieval as well as advertisements recall and recommendation.
+  - I am working on the application and research of large-scale language models(LLMs) in the commercial field, as well as the construction and evaluation of large-model systems. Which is primarily used for business scenarios such as advertising scripts, live broadcast copywriting, intelligent customer service or product titles generation, and more.
+  - Previously, I have worked on visual search system in video scenario, the system is widely applied in e-commerce products retrieval as well as advertisements recall and recommendation.
   - Responsible for multi-modal research, as well as feature optimization and performance improvement of advertising systems.
+  
 
 - **Algorithm Engineer Intern in New Retail Intelligent Engine Business Group, Alibaba Group**. (2020.6-2020.9)
 
