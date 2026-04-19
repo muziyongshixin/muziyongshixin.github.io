@@ -6,7 +6,7 @@ author_profile: true
 toc: true
 ---
 
-His citation profile in [Google Scholar](https://scholar.google.com.hk/citations?user=LKvjDSgAAAAJ&hl=zh-CN).
+My citation profile is available on [Google Scholar](https://scholar.google.com.hk/citations?user=LKvjDSgAAAAJ&hl=zh-CN).
 
 <!-- Our publication in the area of key generation is summarized at [here](https://junqing-zhang.github.io/posts/2019/04/blog-post-keygen_liv_pub/) -->
 
@@ -47,6 +47,30 @@ Please [email me](yongzhili@pku.edu.cn) if you require a copy of the paper.
 
 <!-- 1. Wei Li, Mounir Ghogho, **Junqing Zhang**, Des McLernon, Jing Lei and Syed Ali Raza Zaidi, “Design of an Energy-Efficient Multidimensional Secure Constellation for 5G Communications,” in _Proc. IEEE ICC Workshop on Wireless Physical Layer Security_, Shanghai, China, May 2019. -->
 
+1. Yuyang You, **Yongzhi Li**<sup>†</sup>, Jiahui Li, Yadong Mu, Quan Chen, Peng Jiang,
+
+    _"Adaptive Video Distillation: Mitigating Oversaturation and Temporal Collapse in Few-Step Generation"_,
+
+    IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2026.
+
+1. Zhengjian Yao, **Yongzhi Li**<sup>†</sup>, Xinyuan Gao, Quan Chen, Peng Jiang, Yanye Lu,
+
+    _"Narrative Weaver: Towards Controllable Long-Range Visual Consistency with Multi-Modal Conditioning"_,
+
+    IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2026.
+
+1. Milton Zhou<sup>*</sup>, Sizhong Qin<sup>*</sup>, **Yongzhi Li**<sup>†</sup>, Quan Chen, Peng Jiang,
+
+    _"AutoCut: End-to-end Advertisement Video Editing Based on Multimodal Discretization and Controllable Generation"_,
+
+    IEEE Conference on Computer Vision and Pattern Recognition (CVPR) 2026.
+
+1. Ben Xue, Dan Liu, et al., **Yongzhi Li**, Quan Chen, Peng Jiang, Kun Gai,
+
+    _"Generative Recommendation for Large-Scale Advertising"_,
+
+    ACM SIGKDD Conference on Knowledge Discovery and Data Mining (KDD) 2026.
+
 1. Yang Jin, **Yongzhi Li**, Zehuan Yuan, Yadong MU,
 
     _"Learning Instance-Level Representation for Large-Scale Multi-Modal Pretraining in E-commerce"_, 
@@ -66,13 +90,13 @@ Please [email me](yongzhili@pku.edu.cn) if you require a copy of the paper.
     
     The 30th International Joint Conference on Artificial Intelligence (IJCAI) 2021.[[pdf](https://www.ijcai.org/proceedings/2021/0118.pdf)] [[bibtex](https://scholar.googleusercontent.com/scholar.bib?q=info:mabje6rmGrQJ:scholar.google.com/&output=citation&scisdr=CgW8BvtKEKvryOacCOo:AAGBfm0AAAAAYW6aEOow2GSXKWvFTJgufoT2fLoPSMSy&scisig=AAGBfm0AAAAAYW6aEPSMQb5FCwE3G9bcTwVmcP7HHrFB&scisf=4&ct=citation&cd=-1&hl=zh-CN)]
 
-1. **Yongzhi Li**, Yadong Mu, Nan Zhuang, Xianglong Liu
+1. **Yongzhi Li**, Yadong Mu, Nan Zhuang, Xianglong Liu,
 
     _"Efficient Fine-Grained Visual-Text Search Using Adversarially-Learned Hash Codes"_,
 
     IEEE International Conference on Multimedia and Expo (ICME) 2021. [[pdf](https://ieeexplore.ieee.org/abstract/document/9428271)] [[bibtex](https://scholar.googleusercontent.com/scholar.bib?q=info:IkwM_q_q5c8J:scholar.google.com/&output=citation&scisdr=CgW8BvtKEKvryOacmmM:AAGBfm0AAAAAYW6agmPvGTEed7WlqUAvyArav10WvL4T&scisig=AAGBfm0AAAAAYW6agg8eOb-7iKL_bCqS7vXRHLktwjHL&scisf=4&ct=citation&cd=-1&hl=zh-CN)]
 
-1. Liangfeng Zheng, **Yongzhi Li**, Yadong Mu
+1. Liangfeng Zheng, **Yongzhi Li**, Yadong Mu,
 
     _"Learning Factorized Cross-View Fusion for Multi-View Crowd Counting"_, 
 

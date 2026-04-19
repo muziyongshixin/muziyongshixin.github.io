@@ -84,9 +84,9 @@ google_analytics: UA-171582480-1
 author:
   name: '李勇志 (Yongzhi Li)'
   avatar: 'profile.png'
-  bio: 'I am an algorithm engineer in ByteDance.Inc. I am working on computer vision and deep learning.'
+  bio: 'I am an AIGC technical leader at Kuaishou, working on multimodal generation, LLMs, AI agents, and advertising intelligence.'
   location: 'Beijing, China'
-  employer: 'ByteDance'
+  employer: 'Kuaishou'
   #pubmed           : "https://www.ncbi.nlm.nih.gov/pubmed/?term=john+snow"
   googlescholar: 'https://scholar.google.com.hk/citations?user=LKvjDSgAAAAJ&hl=zh-CN'
   email: yongzhili@pku.edu.cn

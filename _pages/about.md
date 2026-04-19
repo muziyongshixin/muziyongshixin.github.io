@@ -9,11 +9,11 @@ redirect_from:
 toc: true
 ---
 
-I am a computer vision algorithm engineer in ByteDance.Inc. I'm mainly responsible for multi-modal research, as well as feature optimization and performance improvement of advertising systems.
+I am an AIGC technical leader at Kuaishou, where I work on commercial AdsLLM and AI Agents. My recent work focuses on multimodal generation, large language models, generative recommendation, advertisement video creation, and efficient deployment of large-scale AIGC systems.
 
-I received the master degree from Peking University, China under the supervsion of Prof. [Yadong Mu](http://www.muyadong.com). And I'm majored in computer vision and deep learning during that time. My research work mainly involves in Cross modal retrieval, Deep Hashing, Medical AI, Steganography, and Image Captioning.
+I received my master's degree from Peking University, China, under the supervision of Prof. [Yadong Mu](http://www.muyadong.com). My research interests span computer vision, multimodal learning, large language models, AI agents, AIGC, and recommendation systems.
 
-Before that, I received my bachelor's degree in computer science from the School of Computer Science in Wuhan University, Wuhan China.
+Before that, I received my bachelor's degree in computer science from Wuhan University, where I graduated with a GPA of 3.83/4.0 and ranked 1/38 in my major.
 
 <!-- Junqing Zhang is a Tenure Track Fellow (Assistant Professor) at the Department of Electrical Engineering and Electronics, the University of Liverpool, UK from Feb. 2018. His work mainly involves designing innovative and practical physical layer security solutions for future wireless technologies with ultra-low energy requirements but high security standards. He has been investigating wireless security solutions for a number of Internet of Things techniques, including IEEE 802.11a/g/ax, LoRa/LoRaWAN, ZigBee, etc, with a focus on the physical and MAC layers. -->
 
@@ -27,53 +27,65 @@ Before that, I received my bachelor's degree in computer science from the School
 <!-- <font color=orange> 🎉 The 2022 Winter Olympics will be held in Beijing, China. Want a cute Bing DwenDwen mascot 🐼? </font> 
 
 👉 [Click Here](https://www.liyongzhi.xyz/3d/#/olympic) -->
-- One paper acctpted by CVPR 2023.
+- Four recent papers were accepted by CVPR 2026 and KDD 2026.
+
+  [Adaptive Video Distillation: Mitigating Oversaturation and Temporal Collapse in Few-Step Generation]({{ site.url }}/publication/)
+
+  [Narrative Weaver: Towards Controllable Long-Range Visual Consistency with Multi-Modal Conditioning]({{ site.url }}/publication/)
+
+  [AutoCut: End-to-end Advertisement Video Editing Based on Multimodal Discretization and Controllable Generation]({{ site.url }}/publication/)
+
+  [Generative Recommendation for Large-Scale Advertising]({{ site.url }}/publication/)
+
+- One paper was accepted by CVPR 2023.
 
   [Learning Instance-Level Representation for Large-Scale Multi-Modal Pretraining in E-commerce]({{ site.url }}/publication/)
-
-- One paper accepted by NeurIPS 2022.
-
-  [Embracing Consistency: A One-Stage Approach for Spatio-Temporal Video Grounding]({{ site.url }}/publication/)
-
-- One paper accepted by IJCAI 2021.
-
-  [Learning 3-D Human Pose Estimation from Catadioptric Videos]({{ site.url }}/publication/)
 
 ## Research Area
 
 - Computer Vision
-- Deep Learning
-- Cross-modal Retrieval/Matching
+- Multimodal Learning
+- Large Language Models and AI Agents
+- AIGC and Generative Recommendation
 
 
 ## Experiences
 
-- **Computer Vision Algorithm Engineer in AILab, ByteDance.Inc**. (2021.7 - NAN)
+- **AIGC Technical Leader, Commercialization Algorithm Department, Kuaishou**. (2025.01 - Present)
 
-  - I am working on the application and research of large-scale language models(LLMs) in the commercial field, as well as the construction and evaluation of large-model systems. Which is primarily used for business scenarios such as advertising scripts, live broadcast copywriting, intelligent customer service or product titles generation, and more.
-  - Previously, I have worked on visual search system in video scenario, the system is widely applied in e-commerce products retrieval as well as advertisements recall and recommendation.
-  - Responsible for multi-modal research, as well as feature optimization and performance improvement of advertising systems.
-  
+  - Leading the development of AdsLLM and AI Agents for Kuaishou's commercialization scenarios, including zero-material advertisement generation, intelligent customer service, and ad delivery agents.
+  - Built a zero-to-one advertising agent that can automatically generate complete AIGC short video advertisements from product images or landing pages, reducing production cost by orders of magnitude and scaling to hundreds of thousands of videos per day.
+  - Led the AI novel agent system from zero to one, covering LLM-based classification, structured understanding, highlight extraction, content generation, and quality evaluation for large-scale online deployment.
+  - Drove generative recommendation and personalized AIGC ad generation systems for large-scale advertising, and led research on efficient video generation, controllable long-range visual consistency, and multimodal advertisement editing.
 
-- **Algorithm Engineer Intern in New Retail Intelligent Engine Business Group, Alibaba Group**. (2020.6-2020.9)
+- **Senior AIGC Algorithm Engineer, Commercialization GenAI, ByteDance**. (2023.03 - 2025.01)
 
-  - Mainly responsible for Object Matting, Advertising Image Generation, Video Understanding.
+  - Led AdsLLM for commercialization, covering continued pretraining, alignment, evaluation, and platform capabilities for advertising creation, moderation, customer service, and diagnosis.
+  - Built data cleaning, SFT construction, and quality evaluation pipelines for more than 40 business scenarios, and improved long-context, function-calling, RAG, and instruction-following capabilities.
+  - Established a comprehensive evaluation system combining automatic, GPT-based, and human review for both general and vertical-domain commercial tasks.
 
-- **Winter Camp Intern in Google, China**. (2020.1-2020.2)
+- **Computer Vision Algorithm Engineer, AI-Lab, ByteDance**. (2021.10 - 2023.03)
 
-  - Completed an application that can transfer the human in a selfie into animation style and change the background at the same time. It mainly includes three modules: Human Matting, Face style translation and Background neural style transfer. It can synthesized the fine-grained animation human face into the style transferred background image to get a cartoonization photo.
-  - Completed a program which can achieve real-time character foreground matting and background style transfer in video stream on Intel-i5 CPU.
+  - Led the video-to-product retrieval project for commercialization, enabling large-scale matching from videos to in-platform and external products with multimodal understanding.
+  - Built end-to-end capabilities including intent recognition, detection and tracking, product recognition, multimodal retrieval, and ranking, and supported multiple e-commerce and advertising scenarios.
 
-- **Research Intern in Medical AI Lab, Tencent**. (2018.7-2019.7)
+- **Computer Vision Algorithm Engineer, AI-Lab, ByteDance**. (2021.06 - 2021.10)
 
-  - Responsible for the research and development of the core module in the intelligent medical qualification examination system. The final model can score more than 390 points in the national medical qualification examination, which outperformed more than 70% of the human examinees.
-  - Researched the automatic generation of medical diagnostic reports for chest X-rays.
+  - Built multimodal models for advertisement understanding by combining visual and textual signals to improve CTR and CVR prediction in advertising systems.
 
-- **Engeering Intern in Tencent Cloud**. (2017.7-2017.9)
+- **Algorithm Engineer Intern, Alibaba Group**. (2020.07 - 2020.10)
+
+  - Worked on advertising creative material mining and video understanding for Alibaba's creative center, improving the diversity and scale of reusable creative assets.
+
+- **Research Intern, Medical AI Lab, Tencent**. (2018.07 - 2019.07)
+
+  - Worked on the core reading-comprehension model for the MedQA system and on automatic chest X-ray diagnosis and report generation.
+
+- **Engineering Intern, Tencent Cloud**. (2017.07 - 2017.09)
   - Responsible for the Panshi system decoupling and reconstruction. Separated the system’s web access layer from its data access layer; completed the modification of related data interfaces.
   - Developed and maintained the related functional plugins of the system.
 
-* **Exchange Student in Hong Kong Baptist University**. (2017.5-2017.6)
+* **Exchange Student in Hong Kong Baptist University**. (2017.05 - 2017.06)
   - Researched on blockchain technology.
 
 ## Contact
