@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Classifier Guidance versus Classifier-Free Guidance</title>
+  <desc id="desc">A side by side diagram comparing training and inference for classifier guidance and classifier-free guidance.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbf8f1"/>
+      <stop offset="100%" stop-color="#eef7ff"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#334e68"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="760" fill="url(#bg)"/>
+  <text x="80" y="72" fill="#102a43" font-size="34" font-family="Helvetica, Arial, sans-serif" font-weight="700">
+    Two Guidance Routes in Diffusion Models
+  </text>
+  <text x="80" y="108" fill="#486581" font-size="20" font-family="Helvetica, Arial, sans-serif">
+    Left: external classifier gradients. Right: one model with condition dropout.
+  </text>
+
+  <rect x="70" y="150" width="500" height="540" rx="24" fill="#fff5f5" stroke="#e53e3e" stroke-width="3"/>
+  <rect x="630" y="150" width="500" height="540" rx="24" fill="#f0fff4" stroke="#2f855a" stroke-width="3"/>
+
+  <text x="105" y="198" fill="#9b2c2c" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">
+    Classifier Guidance
+  </text>
+  <text x="665" y="198" fill="#276749" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">
+    Classifier-Free Guidance
+  </text>
+
+  <text x="105" y="245" fill="#7b341e" font-size="20" font-family="Helvetica, Arial, sans-serif" font-weight="700">Training</text>
+  <rect x="105" y="265" width="180" height="72" rx="14" fill="#ffffff" stroke="#f56565"/>
+  <text x="128" y="309" fill="#102a43" font-size="20" font-family="Helvetica, Arial, sans-serif">Diffusion model</text>
+  <rect x="355" y="265" width="160" height="72" rx="14" fill="#ffffff" stroke="#f56565"/>
+  <text x="388" y="309" fill="#102a43" font-size="20" font-family="Helvetica, Arial, sans-serif">Classifier</text>
+  <line x1="286" y1="301" x2="354" y2="301" stroke="#9b2c2c" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="105" y="368" fill="#486581" font-size="18" font-family="Helvetica, Arial, sans-serif">Needs a separate noisy-image classifier.</text>
+  <text x="105" y="394" fill="#486581" font-size="18" font-family="Helvetica, Arial, sans-serif">Classifier must take x_t and timestep t.</text>
+
+  <text x="665" y="245" fill="#166534" font-size="20" font-family="Helvetica, Arial, sans-serif" font-weight="700">Training</text>
+  <rect x="665" y="265" width="210" height="72" rx="14" fill="#ffffff" stroke="#48bb78"/>
+  <text x="718" y="309" fill="#102a43" font-size="20" font-family="Helvetica, Arial, sans-serif">One diffusion model</text>
+  <rect x="915" y="265" width="160" height="72" rx="14" fill="#ffffff" stroke="#48bb78"/>
+  <text x="940" y="300" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">Condition</text>
+  <text x="953" y="322" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">dropout</text>
+  <line x1="876" y1="301" x2="914" y2="301" stroke="#276749" stroke-width="4" marker-end="url(#arrow)"/>
+  <text x="665" y="368" fill="#486581" font-size="18" font-family="Helvetica, Arial, sans-serif">Same network learns conditional and</text>
+  <text x="665" y="394" fill="#486581" font-size="18" font-family="Helvetica, Arial, sans-serif">unconditional denoising behavior.</text>
+
+  <text x="105" y="455" fill="#7b341e" font-size="20" font-family="Helvetica, Arial, sans-serif" font-weight="700">Inference</text>
+  <rect x="105" y="475" width="180" height="70" rx="14" fill="#ffffff" stroke="#f56565"/>
+  <text x="145" y="517" fill="#102a43" font-size="20" font-family="Helvetica, Arial, sans-serif">x_t -> model</text>
+  <rect x="335" y="475" width="180" height="70" rx="14" fill="#ffffff" stroke="#f56565"/>
+  <text x="372" y="508" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">x_t -> classifier</text>
+  <text x="388" y="530" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">backprop</text>
+  <line x1="286" y1="510" x2="334" y2="510" stroke="#9b2c2c" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="105" y="575" width="410" height="84" rx="14" fill="#fffaf0" stroke="#ed8936"/>
+  <text x="130" y="611" fill="#7b341e" font-size="20" font-family="Helvetica, Arial, sans-serif">guided direction = score + classifier gradient</text>
+  <text x="130" y="638" fill="#7b341e" font-size="18" font-family="Helvetica, Arial, sans-serif">extra memory and runtime from backward pass</text>
+
+  <text x="665" y="455" fill="#166534" font-size="20" font-family="Helvetica, Arial, sans-serif" font-weight="700">Inference</text>
+  <rect x="665" y="475" width="170" height="70" rx="14" fill="#ffffff" stroke="#48bb78"/>
+  <text x="696" y="508" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">x_t + null cond</text>
+  <text x="719" y="530" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">-> eps_u</text>
+  <rect x="880" y="475" width="170" height="70" rx="14" fill="#ffffff" stroke="#48bb78"/>
+  <text x="907" y="508" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">x_t + real cond</text>
+  <text x="930" y="530" fill="#102a43" font-size="18" font-family="Helvetica, Arial, sans-serif">-> eps_c</text>
+  <line x1="836" y1="510" x2="879" y2="510" stroke="#276749" stroke-width="4" marker-end="url(#arrow)"/>
+  <rect x="665" y="575" width="410" height="84" rx="14" fill="#f0fff4" stroke="#38a169"/>
+  <text x="690" y="611" fill="#166534" font-size="20" font-family="Helvetica, Arial, sans-serif">eps_cfg = eps_u + w (eps_c - eps_u)</text>
+  <text x="690" y="638" fill="#166534" font-size="18" font-family="Helvetica, Arial, sans-serif">two forward passes, no extra classifier</text>
+</svg>
