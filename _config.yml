@@ -11,8 +11,8 @@ title: '李勇志 (Yongzhi Li)'
 title_separator: '-'
 name: &name '李勇志 (Yongzhi Li)'
 description: &description 'A master student in Peking University, China. Majored in computer vision and deep learning. '
-url: https://muziyongshixin.github.io # the base hostname & protocol for your site e.g. "https://mmistakes.github.io"
-baseurl: '' # the subpath of your site, e.g. "/blog"
+url: https://liyongzhi.xyz
+baseurl: ''
 repository: 'muziyongshixin/muziyongshixin.github.io'
 teaser: # filename of teaser fallback teaser image placed in /images/, .e.g. "500x300.png"
 breadcrumbs: true # true, false (default)
