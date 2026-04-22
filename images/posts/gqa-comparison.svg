@@ -1,0 +1,181 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">MHA versus GQA versus MQA</title>
+  <desc id="desc">Side by side comparison showing how Q heads and KV heads are grouped in Multi-Head Attention, Grouped-Query Attention, and Multi-Query Attention.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#fbf8f1"/>
+      <stop offset="100%" stop-color="#eef7ff"/>
+    </linearGradient>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2b6cb0"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#276749"/>
+    </marker>
+    <marker id="arrowRed" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9b2c2c"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="760" fill="url(#bg)"/>
+
+  <text x="60" y="60" fill="#102a43" font-size="32" font-family="Helvetica, Arial, sans-serif" font-weight="700">
+    Three Ways to Share Keys and Values
+  </text>
+  <text x="60" y="94" fill="#486581" font-size="18" font-family="Helvetica, Arial, sans-serif">
+    Q has 8 heads in every case. Only the number of KV heads changes — and with it, the KV cache size.
+  </text>
+
+  <!-- ============== MHA panel ============== -->
+  <rect x="40" y="130" width="360" height="540" rx="20" fill="#ebf8ff" stroke="#2b6cb0" stroke-width="3"/>
+  <text x="60" y="172" fill="#1a365d" font-size="24" font-family="Helvetica, Arial, sans-serif" font-weight="700">MHA</text>
+  <text x="60" y="198" fill="#2c5282" font-size="16" font-family="Helvetica, Arial, sans-serif">Multi-Head Attention</text>
+  <text x="60" y="220" fill="#486581" font-size="14" font-family="Helvetica, Arial, sans-serif">h Q heads, h KV heads</text>
+
+  <!-- Q heads row -->
+  <text x="60" y="260" fill="#2c5282" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">Query heads (h = 8)</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#1a365d">
+    <rect x="60" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="70" y="299">Q1</text>
+    <rect x="100" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="110" y="299">Q2</text>
+    <rect x="140" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="150" y="299">Q3</text>
+    <rect x="180" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="190" y="299">Q4</text>
+    <rect x="220" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="230" y="299">Q5</text>
+    <rect x="260" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="270" y="299">Q6</text>
+    <rect x="300" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="310" y="299">Q7</text>
+    <rect x="340" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#2b6cb0"/><text x="350" y="299">Q8</text>
+  </g>
+
+  <!-- Connecting lines 8 to 8 -->
+  <g stroke="#2b6cb0" stroke-width="1.5" opacity="0.7">
+    <line x1="78" y1="311" x2="78" y2="420"/>
+    <line x1="118" y1="311" x2="118" y2="420"/>
+    <line x1="158" y1="311" x2="158" y2="420"/>
+    <line x1="198" y1="311" x2="198" y2="420"/>
+    <line x1="238" y1="311" x2="238" y2="420"/>
+    <line x1="278" y1="311" x2="278" y2="420"/>
+    <line x1="318" y1="311" x2="318" y2="420"/>
+    <line x1="358" y1="311" x2="358" y2="420"/>
+  </g>
+
+  <!-- KV heads row -->
+  <text x="60" y="410" fill="#2c5282" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">KV heads (8 pairs)</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#1a365d">
+    <rect x="60" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="68" y="442">K1</text><text x="68" y="462">V1</text>
+    <rect x="100" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="108" y="442">K2</text><text x="108" y="462">V2</text>
+    <rect x="140" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="148" y="442">K3</text><text x="148" y="462">V3</text>
+    <rect x="180" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="188" y="442">K4</text><text x="188" y="462">V4</text>
+    <rect x="220" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="228" y="442">K5</text><text x="228" y="462">V5</text>
+    <rect x="260" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="268" y="442">K6</text><text x="268" y="462">V6</text>
+    <rect x="300" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="308" y="442">K7</text><text x="308" y="462">V7</text>
+    <rect x="340" y="420" width="36" height="54" rx="6" fill="#bee3f8" stroke="#2b6cb0"/><text x="348" y="442">K8</text><text x="348" y="462">V8</text>
+  </g>
+
+  <!-- Stats -->
+  <text x="60" y="540" fill="#2c5282" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">KV Cache relative: 1.0×</text>
+  <text x="60" y="568" fill="#486581" font-size="13" font-family="Helvetica, Arial, sans-serif">Each Q head has a private K/V.</text>
+  <text x="60" y="590" fill="#486581" font-size="13" font-family="Helvetica, Arial, sans-serif">Best expressiveness, largest memory.</text>
+  <text x="60" y="630" fill="#2c5282" font-size="13" font-family="Helvetica, Arial, sans-serif" font-style="italic">Used by: GPT-2, GPT-3, original Transformer.</text>
+
+  <!-- ============== GQA panel ============== -->
+  <rect x="420" y="130" width="360" height="540" rx="20" fill="#f0fff4" stroke="#276749" stroke-width="3"/>
+  <text x="440" y="172" fill="#22543d" font-size="24" font-family="Helvetica, Arial, sans-serif" font-weight="700">GQA</text>
+  <text x="440" y="198" fill="#2f855a" font-size="16" font-family="Helvetica, Arial, sans-serif">Grouped-Query Attention</text>
+  <text x="440" y="220" fill="#486581" font-size="14" font-family="Helvetica, Arial, sans-serif">h Q heads, g KV heads (here g = 2)</text>
+
+  <!-- Q heads row -->
+  <text x="440" y="260" fill="#2f855a" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">Query heads (h = 8)</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#22543d">
+    <rect x="440" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="450" y="299">Q1</text>
+    <rect x="480" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="490" y="299">Q2</text>
+    <rect x="520" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="530" y="299">Q3</text>
+    <rect x="560" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="570" y="299">Q4</text>
+    <rect x="600" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="610" y="299">Q5</text>
+    <rect x="640" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="650" y="299">Q6</text>
+    <rect x="680" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="690" y="299">Q7</text>
+    <rect x="720" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#276749"/><text x="730" y="299">Q8</text>
+  </g>
+
+  <!-- Group labels -->
+  <rect x="455" y="320" width="146" height="22" rx="6" fill="#c6f6d5" stroke="#276749" stroke-width="1"/>
+  <text x="495" y="336" fill="#22543d" font-size="12" font-family="Helvetica, Arial, sans-serif" font-weight="700">Group 1 (Q1-Q4)</text>
+  <rect x="615" y="320" width="146" height="22" rx="6" fill="#c6f6d5" stroke="#276749" stroke-width="1"/>
+  <text x="655" y="336" fill="#22543d" font-size="12" font-family="Helvetica, Arial, sans-serif" font-weight="700">Group 2 (Q5-Q8)</text>
+
+  <!-- Connecting lines: 4 Q → 1 KV per group -->
+  <g stroke="#276749" stroke-width="1.5" opacity="0.75">
+    <line x1="458" y1="342" x2="520" y2="420"/>
+    <line x1="498" y1="342" x2="525" y2="420"/>
+    <line x1="538" y1="342" x2="530" y2="420"/>
+    <line x1="578" y1="342" x2="535" y2="420"/>
+
+    <line x1="618" y1="342" x2="680" y2="420"/>
+    <line x1="658" y1="342" x2="685" y2="420"/>
+    <line x1="698" y1="342" x2="690" y2="420"/>
+    <line x1="738" y1="342" x2="695" y2="420"/>
+  </g>
+
+  <!-- KV heads -->
+  <text x="440" y="410" fill="#2f855a" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">KV heads (2 pairs)</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#22543d">
+    <rect x="507" y="420" width="36" height="54" rx="6" fill="#9ae6b4" stroke="#276749"/><text x="515" y="442">K1</text><text x="515" y="462">V1</text>
+    <rect x="667" y="420" width="36" height="54" rx="6" fill="#9ae6b4" stroke="#276749"/><text x="675" y="442">K2</text><text x="675" y="462">V2</text>
+  </g>
+
+  <!-- Stats -->
+  <text x="440" y="540" fill="#2f855a" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">KV Cache relative: 0.25×</text>
+  <text x="440" y="568" fill="#486581" font-size="13" font-family="Helvetica, Arial, sans-serif">Each KV pair shared by 4 Q heads.</text>
+  <text x="440" y="590" fill="#486581" font-size="13" font-family="Helvetica, Arial, sans-serif">Good balance of quality and memory.</text>
+  <text x="440" y="630" fill="#2f855a" font-size="13" font-family="Helvetica, Arial, sans-serif" font-style="italic">Used by: LLaMA-2/3, Mistral, Qwen, Mixtral.</text>
+
+  <!-- ============== MQA panel ============== -->
+  <rect x="800" y="130" width="360" height="540" rx="20" fill="#fff5f5" stroke="#9b2c2c" stroke-width="3"/>
+  <text x="820" y="172" fill="#742a2a" font-size="24" font-family="Helvetica, Arial, sans-serif" font-weight="700">MQA</text>
+  <text x="820" y="198" fill="#9b2c2c" font-size="16" font-family="Helvetica, Arial, sans-serif">Multi-Query Attention</text>
+  <text x="820" y="220" fill="#486581" font-size="14" font-family="Helvetica, Arial, sans-serif">h Q heads, 1 KV head</text>
+
+  <!-- Q heads -->
+  <text x="820" y="260" fill="#9b2c2c" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">Query heads (h = 8)</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#742a2a">
+    <rect x="820" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="830" y="299">Q1</text>
+    <rect x="860" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="870" y="299">Q2</text>
+    <rect x="900" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="910" y="299">Q3</text>
+    <rect x="940" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="950" y="299">Q4</text>
+    <rect x="980" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="990" y="299">Q5</text>
+    <rect x="1020" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="1030" y="299">Q6</text>
+    <rect x="1060" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="1070" y="299">Q7</text>
+    <rect x="1100" y="275" width="36" height="36" rx="6" fill="#fff" stroke="#9b2c2c"/><text x="1110" y="299">Q8</text>
+  </g>
+
+  <!-- Lines converging to 1 KV -->
+  <g stroke="#9b2c2c" stroke-width="1.5" opacity="0.7">
+    <line x1="838" y1="311" x2="968" y2="420"/>
+    <line x1="878" y1="311" x2="972" y2="420"/>
+    <line x1="918" y1="311" x2="976" y2="420"/>
+    <line x1="958" y1="311" x2="980" y2="420"/>
+    <line x1="998" y1="311" x2="984" y2="420"/>
+    <line x1="1038" y1="311" x2="988" y2="420"/>
+    <line x1="1078" y1="311" x2="992" y2="420"/>
+    <line x1="1118" y1="311" x2="996" y2="420"/>
+  </g>
+
+  <!-- KV head -->
+  <text x="820" y="410" fill="#9b2c2c" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">KV heads (1 pair)</text>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#742a2a">
+    <rect x="960" y="420" width="36" height="54" rx="6" fill="#fed7d7" stroke="#9b2c2c"/><text x="968" y="442">K1</text><text x="968" y="462">V1</text>
+  </g>
+
+  <!-- Stats -->
+  <text x="820" y="540" fill="#9b2c2c" font-size="14" font-family="Helvetica, Arial, sans-serif" font-weight="700">KV Cache relative: 0.125×</text>
+  <text x="820" y="568" fill="#486581" font-size="13" font-family="Helvetica, Arial, sans-serif">All Q heads share one K/V.</text>
+  <text x="820" y="590" fill="#486581" font-size="13" font-family="Helvetica, Arial, sans-serif">Smallest memory, quality drops noticeably.</text>
+  <text x="820" y="630" fill="#9b2c2c" font-size="13" font-family="Helvetica, Arial, sans-serif" font-style="italic">Used by: PaLM, early Gemini, Falcon-40B.</text>
+
+  <!-- Bottom note -->
+  <text x="60" y="715" fill="#334e68" font-size="15" font-family="Helvetica, Arial, sans-serif">
+    <tspan font-weight="700">Takeaway:</tspan> GQA is the sweet spot — keeps most of MHA's quality while shrinking the KV cache by 4–8× at inference.
+  </text>
+  <text x="60" y="740" fill="#486581" font-size="13" font-family="Helvetica, Arial, sans-serif" font-style="italic">
+    Special cases: g = h → MHA,  g = 1 → MQA.
+  </text>
+</svg>
