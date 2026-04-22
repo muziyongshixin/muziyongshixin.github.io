@@ -1,7 +1,7 @@
 ---
 permalink: /terms/
 title: "Terms and Privacy Policy"
-modified: 2016-06-06
+modified: 2026-04-22
 ---
 
 {% include base_path %}
@@ -9,13 +9,13 @@ modified: 2016-06-06
 
 ## Privacy Policy
 
-The privacy of my visitors is extremely important. This Privacy Policy outlines the types of personal information that is received and collected and how it is used.
+The privacy of my visitors is important to me. This page explains what data may be collected when you browse this site and how that information may be used.
 
-First and foremost, I will never share your email address or any other personal information to anyone without your direct consent.
+I do not sell personal information. If you contact me directly, I will only use the information you provide for communication related to your message.
 
 ### Log Files
 
-Like many other websites, this site uses log files to help learn about when, from where, and how often traffic flows to this site. The information in these log files include:
+Like many other websites, this site may use standard server logs to understand traffic and maintain the site. The information in these logs can include:
 
 * Internet Protocol addresses (IP)
 * Types of browser
@@ -28,12 +28,12 @@ All of this information is not linked to anything that is personally identifiabl
 
 ### Cookies and Web Beacons
 
-When you visit this site "convenience" cookies are stored on your computer when you submit a comment to help you log in faster to [Disqus](http://disqus.com) the next time you leave a comment.
+This site may use cookies or similar technologies from analytics and advertising providers to understand usage and improve the site experience.
 
-Third-party advertisers may also place and read cookies on your browser and/or use web beacons to collect information. This site has no access or control over these cookies. You should review the respective privacy policies on any and all third-party ad servers for more information regarding their practices and how to opt-out.
+If Google AdSense or other third-party advertising services are enabled on the site, those providers may use cookies to serve and measure ads. This site does not directly control third-party cookies. You should review the privacy policies of the relevant providers for more information about how they use data and how to opt out.
 
 If you wish to disable cookies, you may do so through your web browser options. Instructions for doing so can be found on the specific web browsers' websites.
 
 #### Google Analytics
 
-Google Analytics is a web analytics tool I use to help understand how visitors engage with this website. It reports website trends using cookies and web beacons without identifying individual visitors. You can read [Google Analytics Privacy Policy](http://www.google.com/analytics/learn/privacy.html).
+Google Analytics may be used to understand how visitors engage with this website. It reports aggregate website trends and usage patterns. You can read the [Google Analytics Privacy Policy](https://policies.google.com/technologies/partner-sites).

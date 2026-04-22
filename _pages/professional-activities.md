@@ -5,6 +5,7 @@ permalink: /professional-activities/
 author_profile: true
 toc: true
 toc_max_header: 1
+published: false
 ---
 {% include toc h_min = 1%}
 
