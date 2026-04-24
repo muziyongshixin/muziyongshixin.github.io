@@ -1,0 +1,244 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="1200" viewBox="0 0 1300 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Wan2.1 DiT block internal computation</title>
+  <desc id="desc">Inside one WanAttentionBlock: AdaLN-modulated self-attention with 3D factorized RoPE, dual-stream cross-attention for image and text, and AdaLN-modulated FFN with gated residuals.</desc>
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7f3ea"/>
+      <stop offset="100%" stop-color="#eef4f1"/>
+    </linearGradient>
+    <marker id="arr" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#102a43"/>
+    </marker>
+    <marker id="arrM" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b83280"/>
+    </marker>
+    <marker id="arrQ" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#276749"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1300" height="1200" fill="url(#bg2)"/>
+  <text x="60" y="55" fill="#102a43" font-size="28" font-family="Helvetica, Arial, sans-serif" font-weight="700">WanAttentionBlock · 单层内部计算</text>
+  <text x="60" y="85" fill="#486581" font-size="16" font-family="Helvetica, Arial, sans-serif">SelfAttn (3D RoPE) → CrossAttn (Image + Text 双流) → FFN，全程 AdaLN 门控残差</text>
+
+  <!-- ============ LEFT COLUMN: Timestep modulation ============ -->
+  <rect x="40" y="130" width="260" height="940" rx="16" fill="#fff0f5" stroke="#b83280" stroke-width="2"/>
+  <text x="170" y="158" text-anchor="middle" fill="#702459" font-size="17" font-weight="700" font-family="Helvetica, Arial, sans-serif">Timestep 调制通道</text>
+  <text x="170" y="180" text-anchor="middle" fill="#702459" font-size="12" font-family="Helvetica, Arial, sans-serif">AdaLN-Zero 风格</text>
+
+  <rect x="65" y="200" width="210" height="48" rx="8" fill="#ffffff" stroke="#b83280" stroke-width="1.5"/>
+  <text x="170" y="220" text-anchor="middle" fill="#702459" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">timestep t (标量)</text>
+  <text x="170" y="240" text-anchor="middle" fill="#702459" font-size="11" font-family="Courier, monospace">sinusoidal(256)</text>
+
+  <line x1="170" y1="248" x2="170" y2="268" stroke="#b83280" stroke-width="2" marker-end="url(#arrM)"/>
+
+  <rect x="65" y="272" width="210" height="46" rx="8" fill="#ffffff" stroke="#b83280" stroke-width="1.5"/>
+  <text x="170" y="292" text-anchor="middle" fill="#702459" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">time_embedding MLP</text>
+  <text x="170" y="310" text-anchor="middle" fill="#702459" font-size="11" font-family="Courier, monospace">Linear→SiLU→Linear</text>
+
+  <line x1="170" y1="318" x2="170" y2="338" stroke="#b83280" stroke-width="2" marker-end="url(#arrM)"/>
+
+  <rect x="65" y="342" width="210" height="46" rx="8" fill="#ffffff" stroke="#b83280" stroke-width="1.5"/>
+  <text x="170" y="362" text-anchor="middle" fill="#702459" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">time_projection</text>
+  <text x="170" y="380" text-anchor="middle" fill="#702459" font-size="11" font-family="Courier, monospace">SiLU→Linear(dim→6·dim)</text>
+
+  <line x1="170" y1="388" x2="170" y2="408" stroke="#b83280" stroke-width="2" marker-end="url(#arrM)"/>
+
+  <rect x="65" y="412" width="210" height="58" rx="8" fill="#fbb6ce" stroke="#b83280" stroke-width="1.5"/>
+  <text x="170" y="432" text-anchor="middle" fill="#702459" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">e0 = [B, 6, dim]</text>
+  <text x="170" y="452" text-anchor="middle" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">+ block.modulation (learnable)</text>
+  <text x="170" y="466" text-anchor="middle" fill="#702459" font-size="10" font-family="Helvetica, Arial, sans-serif">.chunk(6) → 6 组调制</text>
+
+  <!-- Six modulation params as small boxes -->
+  <rect x="65" y="500" width="95" height="42" rx="6" fill="#fed7e2" stroke="#b83280" stroke-width="1"/>
+  <text x="113" y="518" text-anchor="middle" fill="#702459" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">shift1</text>
+  <text x="113" y="534" text-anchor="middle" fill="#702459" font-size="10" font-family="Helvetica, Arial, sans-serif">(SelfAttn)</text>
+
+  <rect x="180" y="500" width="95" height="42" rx="6" fill="#fed7e2" stroke="#b83280" stroke-width="1"/>
+  <text x="228" y="518" text-anchor="middle" fill="#702459" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">scale1</text>
+  <text x="228" y="534" text-anchor="middle" fill="#702459" font-size="10" font-family="Helvetica, Arial, sans-serif">(SelfAttn)</text>
+
+  <rect x="65" y="552" width="210" height="42" rx="6" fill="#fbb6ce" stroke="#b83280" stroke-width="1"/>
+  <text x="170" y="569" text-anchor="middle" fill="#702459" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">gate1 (SelfAttn 残差门)</text>
+  <text x="170" y="585" text-anchor="middle" fill="#702459" font-size="10" font-family="Helvetica, Arial, sans-serif">零初始化 → 训练起点恒等</text>
+
+  <rect x="65" y="615" width="95" height="42" rx="6" fill="#fed7e2" stroke="#b83280" stroke-width="1"/>
+  <text x="113" y="633" text-anchor="middle" fill="#702459" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">shift2</text>
+  <text x="113" y="649" text-anchor="middle" fill="#702459" font-size="10" font-family="Helvetica, Arial, sans-serif">(FFN)</text>
+
+  <rect x="180" y="615" width="95" height="42" rx="6" fill="#fed7e2" stroke="#b83280" stroke-width="1"/>
+  <text x="228" y="633" text-anchor="middle" fill="#702459" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">scale2</text>
+  <text x="228" y="649" text-anchor="middle" fill="#702459" font-size="10" font-family="Helvetica, Arial, sans-serif">(FFN)</text>
+
+  <rect x="65" y="667" width="210" height="42" rx="6" fill="#fbb6ce" stroke="#b83280" stroke-width="1"/>
+  <text x="170" y="684" text-anchor="middle" fill="#702459" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">gate2 (FFN 残差门)</text>
+  <text x="170" y="700" text-anchor="middle" fill="#702459" font-size="10" font-family="Helvetica, Arial, sans-serif">零初始化</text>
+
+  <text x="170" y="760" text-anchor="middle" fill="#702459" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">关键：</text>
+  <text x="65" y="782" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">• (shift, scale) 用于 LayerNorm 后</text>
+  <text x="65" y="800" fill="#702459" font-size="11" font-family="Courier, monospace">  x' = norm(x)·(1+scale)+shift</text>
+  <text x="65" y="822" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">• gate 用于残差分支</text>
+  <text x="65" y="840" fill="#702459" font-size="11" font-family="Courier, monospace">  x = x + gate · f(x')</text>
+  <text x="65" y="862" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">• cross-attn 不被调制</text>
+  <text x="65" y="880" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">  (只有 self-attn 和 FFN 被调制)</text>
+  <text x="65" y="905" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">• 全程 fp32 精度</text>
+
+  <!-- ============ MIDDLE COLUMN: main flow ============ -->
+  <!-- x_in -->
+  <rect x="490" y="140" width="280" height="52" rx="10" fill="#efe5ff" stroke="#6b46c1" stroke-width="2.5"/>
+  <text x="630" y="162" text-anchor="middle" fill="#44337a" font-size="15" font-weight="700" font-family="Helvetica, Arial, sans-serif">x_in : [B, S, dim]</text>
+  <text x="630" y="181" text-anchor="middle" fill="#44337a" font-size="11" font-family="Helvetica, Arial, sans-serif">来自上一层（视频 token 序列）</text>
+
+  <line x1="630" y1="192" x2="630" y2="220" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- AdaLN 1 -->
+  <rect x="490" y="224" width="280" height="54" rx="10" fill="#fff0f5" stroke="#b83280" stroke-width="2"/>
+  <text x="630" y="247" text-anchor="middle" fill="#702459" font-size="14" font-weight="700" font-family="Helvetica, Arial, sans-serif">LayerNorm → × (1+scale1) + shift1</text>
+  <text x="630" y="266" text-anchor="middle" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">AdaLN 调制 #1</text>
+
+  <line x1="280" y1="520" x2="488" y2="248" stroke="#b83280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrM)"/>
+
+  <line x1="630" y1="278" x2="630" y2="308" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- Self-attention -->
+  <rect x="410" y="312" width="440" height="138" rx="14" fill="#d1e8d7" stroke="#276749" stroke-width="2.5"/>
+  <text x="630" y="338" text-anchor="middle" fill="#22543d" font-size="16" font-weight="700" font-family="Helvetica, Arial, sans-serif">Self-Attention（3D RoPE · Flash Attention）</text>
+  <text x="630" y="360" text-anchor="middle" fill="#22543d" font-size="12" font-family="Courier, monospace">q, k, v = Linear_q, Linear_k, Linear_v (x)</text>
+  <text x="630" y="378" text-anchor="middle" fill="#22543d" font-size="12" font-family="Courier, monospace">q, k ← RMSNorm(q), RMSNorm(k)</text>
+  <text x="630" y="396" text-anchor="middle" fill="#22543d" font-size="12" font-family="Courier, monospace">q, k ← RoPE_3D(q, grid=(F,H,W)), RoPE_3D(k, grid)</text>
+  <text x="630" y="414" text-anchor="middle" fill="#22543d" font-size="12" font-family="Courier, monospace">out = flash_attn(q, k, v)  · full 3D attention</text>
+  <text x="630" y="434" text-anchor="middle" fill="#22543d" font-size="11" font-family="Helvetica, Arial, sans-serif">（注意：RoPE 只作用于 Q/K，不作用于 V）</text>
+
+  <line x1="630" y1="452" x2="630" y2="480" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- Residual 1 -->
+  <rect x="490" y="482" width="280" height="48" rx="10" fill="#fefcbf" stroke="#b7791f" stroke-width="2"/>
+  <text x="630" y="504" text-anchor="middle" fill="#744210" font-size="14" font-weight="700" font-family="Courier, monospace">x = x + gate1 · out</text>
+  <text x="630" y="522" text-anchor="middle" fill="#744210" font-size="10" font-family="Helvetica, Arial, sans-serif">gated 残差 #1</text>
+
+  <line x1="280" y1="573" x2="488" y2="506" stroke="#b83280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrM)"/>
+
+  <!-- skip connection arrow (x_in → add) -->
+  <path d="M 780 166 Q 900 166 900 505 Q 900 506 775 506" stroke="#6b46c1" stroke-width="2" fill="none" stroke-dasharray="4,3" marker-end="url(#arr)"/>
+  <text x="910" y="340" fill="#44337a" font-size="11" font-family="Helvetica, Arial, sans-serif">残差</text>
+  <text x="910" y="358" fill="#44337a" font-size="11" font-family="Helvetica, Arial, sans-serif">skip</text>
+
+  <line x1="630" y1="530" x2="630" y2="560" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- norm3 (cross-attn norm, simple) -->
+  <rect x="490" y="564" width="280" height="40" rx="8" fill="#ffffff" stroke="#276749" stroke-width="1.5"/>
+  <text x="630" y="589" text-anchor="middle" fill="#22543d" font-size="13" font-family="Helvetica, Arial, sans-serif">LayerNorm (norm3, 无 AdaLN)</text>
+
+  <line x1="630" y1="604" x2="630" y2="632" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- Cross-attention dual stream -->
+  <rect x="370" y="636" width="520" height="198" rx="14" fill="#e6f0ff" stroke="#2b6cb0" stroke-width="2.5"/>
+  <text x="630" y="662" text-anchor="middle" fill="#1a365d" font-size="16" font-weight="700" font-family="Helvetica, Arial, sans-serif">Cross-Attention（双流：图像 + 文本）</text>
+
+  <text x="630" y="685" text-anchor="middle" fill="#1a365d" font-size="12" font-family="Courier, monospace">context_img = context[:, :257]   context_txt = context[:, 257:]</text>
+  <text x="630" y="702" text-anchor="middle" fill="#1a365d" font-size="12" font-family="Courier, monospace">q = Linear_q(x)     共享 Query</text>
+
+  <!-- image branch -->
+  <rect x="390" y="714" width="240" height="72" rx="8" fill="#ffe9d6" stroke="#c05621" stroke-width="1.5"/>
+  <text x="510" y="735" text-anchor="middle" fill="#7b341e" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">图像流（独立 KV）</text>
+  <text x="510" y="753" text-anchor="middle" fill="#7b341e" font-size="11" font-family="Courier, monospace">k_img = Linear_k_img(context_img)</text>
+  <text x="510" y="770" text-anchor="middle" fill="#7b341e" font-size="11" font-family="Courier, monospace">v_img = Linear_v_img(context_img)</text>
+
+  <!-- text branch -->
+  <rect x="640" y="714" width="240" height="72" rx="8" fill="#cfe4ff" stroke="#2b6cb0" stroke-width="1.5"/>
+  <text x="760" y="735" text-anchor="middle" fill="#1a365d" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">文本流（独立 KV）</text>
+  <text x="760" y="753" text-anchor="middle" fill="#1a365d" font-size="11" font-family="Courier, monospace">k_txt = Linear_k(context_txt)</text>
+  <text x="760" y="770" text-anchor="middle" fill="#1a365d" font-size="11" font-family="Courier, monospace">v_txt = Linear_v(context_txt)</text>
+
+  <text x="630" y="805" text-anchor="middle" fill="#1a365d" font-size="12" font-family="Courier, monospace">out_img = flash_attn(q, k_img, v_img)  |  out_txt = flash_attn(q, k_txt, v_txt)</text>
+  <text x="630" y="825" text-anchor="middle" fill="#1a365d" font-size="13" font-family="Courier, monospace" font-weight="700">out = Linear_o(out_img + out_txt)   ← 相加融合</text>
+
+  <line x1="630" y1="834" x2="630" y2="864" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- Residual 2 (no gate) -->
+  <rect x="490" y="866" width="280" height="40" rx="8" fill="#fefcbf" stroke="#b7791f" stroke-width="2"/>
+  <text x="630" y="892" text-anchor="middle" fill="#744210" font-size="13" font-weight="700" font-family="Courier, monospace">x = x + out   （无门）</text>
+
+  <line x1="630" y1="906" x2="630" y2="932" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- AdaLN 2 -->
+  <rect x="490" y="936" width="280" height="54" rx="10" fill="#fff0f5" stroke="#b83280" stroke-width="2"/>
+  <text x="630" y="959" text-anchor="middle" fill="#702459" font-size="14" font-weight="700" font-family="Helvetica, Arial, sans-serif">LayerNorm → × (1+scale2) + shift2</text>
+  <text x="630" y="978" text-anchor="middle" fill="#702459" font-size="11" font-family="Helvetica, Arial, sans-serif">AdaLN 调制 #2</text>
+
+  <line x1="280" y1="637" x2="488" y2="960" stroke="#b83280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrM)"/>
+
+  <line x1="630" y1="990" x2="630" y2="1018" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- FFN -->
+  <rect x="410" y="1022" width="440" height="78" rx="12" fill="#d1e8d7" stroke="#276749" stroke-width="2.5"/>
+  <text x="630" y="1046" text-anchor="middle" fill="#22543d" font-size="15" font-weight="700" font-family="Helvetica, Arial, sans-serif">Feed-Forward Network</text>
+  <text x="630" y="1066" text-anchor="middle" fill="#22543d" font-size="12" font-family="Courier, monospace">Linear(dim→ffn_dim) → GELU(tanh) → Linear(ffn_dim→dim)</text>
+  <text x="630" y="1084" text-anchor="middle" fill="#22543d" font-size="11" font-family="Helvetica, Arial, sans-serif">ffn_dim = 4 × dim  (例如 dim=2048 → ffn_dim=8192)</text>
+
+  <line x1="630" y1="1100" x2="630" y2="1128" stroke="#102a43" stroke-width="2.5" marker-end="url(#arr)"/>
+
+  <!-- Residual 3 -->
+  <rect x="490" y="1130" width="280" height="46" rx="10" fill="#fefcbf" stroke="#b7791f" stroke-width="2"/>
+  <text x="630" y="1152" text-anchor="middle" fill="#744210" font-size="14" font-weight="700" font-family="Courier, monospace">x = x + gate2 · ffn_out</text>
+  <text x="630" y="1168" text-anchor="middle" fill="#744210" font-size="10" font-family="Helvetica, Arial, sans-serif">gated 残差 #3  → 传给下一层</text>
+
+  <line x1="280" y1="688" x2="488" y2="1152" stroke="#b83280" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrM)"/>
+
+  <!-- ============ RIGHT COLUMN: RoPE detail + context explainer ============ -->
+  <rect x="910" y="130" width="360" height="310" rx="14" fill="#fef5e7" stroke="#b7791f" stroke-width="2"/>
+  <text x="1090" y="158" text-anchor="middle" fill="#744210" font-size="16" font-weight="700" font-family="Helvetica, Arial, sans-serif">3D Factorized RoPE</text>
+  <text x="930" y="183" fill="#744210" font-size="12" font-family="Helvetica, Arial, sans-serif">head_dim 被切成三段，分别编码：</text>
+
+  <rect x="930" y="195" width="320" height="36" rx="6" fill="#fefcbf" stroke="#b7791f" stroke-width="1"/>
+  <text x="1090" y="218" text-anchor="middle" fill="#744210" font-size="12" font-family="Courier, monospace">Temporal: d − 4·(d/6) 通道 · 索引 0..F</text>
+
+  <rect x="930" y="236" width="320" height="36" rx="6" fill="#fefcbf" stroke="#b7791f" stroke-width="1"/>
+  <text x="1090" y="259" text-anchor="middle" fill="#744210" font-size="12" font-family="Courier, monospace">Height:  2·(d/6) 通道 · 索引 0..H</text>
+
+  <rect x="930" y="277" width="320" height="36" rx="6" fill="#fefcbf" stroke="#b7791f" stroke-width="1"/>
+  <text x="1090" y="300" text-anchor="middle" fill="#744210" font-size="12" font-family="Courier, monospace">Width:   2·(d/6) 通道 · 索引 0..W</text>
+
+  <text x="930" y="338" fill="#744210" font-size="12" font-family="Helvetica, Arial, sans-serif">每个 token 有一个 (f, h, w) 坐标：</text>
+  <text x="930" y="358" fill="#744210" font-size="11" font-family="Courier, monospace">token_i → 对应 grid_sizes[i]</text>
+  <text x="930" y="378" fill="#744210" font-size="12" font-family="Helvetica, Arial, sans-serif">分别应用一维 RoPE，再沿通道拼接：</text>
+  <text x="930" y="398" fill="#744210" font-size="11" font-family="Courier, monospace">q_rot = q · exp(iθ_f) ⊕ exp(iθ_h) ⊕ exp(iθ_w)</text>
+  <text x="930" y="422" fill="#744210" font-size="11" font-family="Helvetica, Arial, sans-serif">→ 自然支持任意 F/H/W 比例和长度</text>
+
+  <rect x="910" y="460" width="360" height="320" rx="14" fill="#eaf2ff" stroke="#2b6cb0" stroke-width="2"/>
+  <text x="1090" y="487" text-anchor="middle" fill="#1a365d" font-size="16" font-weight="700" font-family="Helvetica, Arial, sans-serif">context 布局与双流设计</text>
+  <text x="930" y="512" fill="#1a365d" font-size="12" font-family="Courier, monospace">context = [ CLIP_257 ∥ T5_512 ]</text>
+  <text x="930" y="532" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">前 257 token 是图像语义，后 512 是文本。</text>
+
+  <text x="930" y="562" fill="#1a365d" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">为什么不直接拼成一个 KV？</text>
+  <text x="930" y="582" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">• 图像/文本分布差别大</text>
+  <text x="930" y="600" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">• 独立投影 + softmax 再相加</text>
+  <text x="930" y="618" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">  相当于两种信号分别给视频打分</text>
+  <text x="930" y="636" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">  再融合，避免互相压制注意力分数。</text>
+
+  <text x="930" y="666" fill="#1a365d" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">CLIP 的 257 是怎么来的？</text>
+  <text x="930" y="686" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">ViT-H/14 在 224×224 上：</text>
+  <text x="930" y="704" fill="#1a365d" font-size="12" font-family="Courier, monospace">(224/14)² = 16×16 = 256 patch</text>
+  <text x="930" y="722" fill="#1a365d" font-size="12" font-family="Courier, monospace">+ 1 CLS = 257 tokens</text>
+  <text x="930" y="742" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">每个 token 维度 1280，</text>
+  <text x="930" y="760" fill="#1a365d" font-size="12" font-family="Helvetica, Arial, sans-serif">通过 MLPProj 投到模型 dim。</text>
+
+  <rect x="910" y="800" width="360" height="290" rx="14" fill="#d1e8d7" stroke="#276749" stroke-width="2"/>
+  <text x="1090" y="827" text-anchor="middle" fill="#22543d" font-size="16" font-weight="700" font-family="Helvetica, Arial, sans-serif">每层的"输入与输出"</text>
+
+  <text x="930" y="855" fill="#22543d" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">输入：</text>
+  <text x="930" y="875" fill="#22543d" font-size="11" font-family="Courier, monospace">x_in  : [B, S, dim]</text>
+  <text x="930" y="892" fill="#22543d" font-size="11" font-family="Courier, monospace">e     : [B, 6, dim]  (timestep)</text>
+  <text x="930" y="909" fill="#22543d" font-size="11" font-family="Courier, monospace">context: [B, 769, dim]</text>
+  <text x="930" y="926" fill="#22543d" font-size="11" font-family="Courier, monospace">grid  : (F, H, W)  (用于 RoPE)</text>
+  <text x="930" y="943" fill="#22543d" font-size="11" font-family="Courier, monospace">freqs : 预计算 RoPE 频率</text>
+
+  <text x="930" y="975" fill="#22543d" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">输出：</text>
+  <text x="930" y="995" fill="#22543d" font-size="11" font-family="Courier, monospace">x_out : [B, S, dim]</text>
+  <text x="930" y="1015" fill="#22543d" font-size="11" font-family="Helvetica, Arial, sans-serif">（形状不变，直接给下一层用）</text>
+
+  <text x="930" y="1045" fill="#22543d" font-size="12" font-weight="700" font-family="Helvetica, Arial, sans-serif">单层参数分布（≈）：</text>
+  <text x="930" y="1063" fill="#22543d" font-size="11" font-family="Helvetica, Arial, sans-serif">Self-Attn QKVO: 4·dim²</text>
+  <text x="930" y="1079" fill="#22543d" font-size="11" font-family="Helvetica, Arial, sans-serif">Cross-Attn QKVO + K/V_img: 6·dim²</text>
+
+</svg>

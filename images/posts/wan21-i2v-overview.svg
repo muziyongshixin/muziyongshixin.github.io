@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="980" viewBox="0 0 1400 980" role="img" aria-labelledby="title desc">
+  <title id="title">Wan2.1 I2V overall architecture</title>
+  <desc id="desc">End-to-end data flow from input image and text prompt, through CLIP, T5 and VAE encoders, into the DiT backbone with 32 transformer blocks, then through the VAE decoder to produce an output video.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f7f3ea"/>
+      <stop offset="100%" stop-color="#eef4f1"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#335c67"/>
+    </marker>
+    <marker id="arrowImg" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#c05621"/>
+    </marker>
+    <marker id="arrowTxt" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#2b6cb0"/>
+    </marker>
+    <marker id="arrowNoise" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0,0 L12,6 L0,12 z" fill="#6b46c1"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="1400" height="980" fill="url(#bg)"/>
+
+  <text x="60" y="60" fill="#102a43" font-size="30" font-family="Helvetica, Arial, sans-serif" font-weight="700">Wan2.1 I2V · 完整数据流与组件关系</text>
+  <text x="60" y="92" fill="#486581" font-size="17" font-family="Helvetica, Arial, sans-serif">输入图 + 文本 → 三路条件编码 → DiT 去噪 (×N step) → VAE 解码 → 输出视频</text>
+
+  <!-- ====== LEFT: INPUTS ====== -->
+  <rect x="60" y="140" width="220" height="120" rx="14" fill="#fff7e6" stroke="#c05621" stroke-width="2"/>
+  <text x="170" y="175" text-anchor="middle" fill="#7b341e" font-size="17" font-weight="700" font-family="Helvetica, Arial, sans-serif">输入图像 (Reference)</text>
+  <text x="170" y="202" text-anchor="middle" fill="#7b341e" font-size="14" font-family="Helvetica, Arial, sans-serif">PIL → [-1,1] 归一化</text>
+  <text x="170" y="224" text-anchor="middle" fill="#7b341e" font-size="13" font-family="Courier, monospace">shape: [3, H, W]</text>
+  <text x="170" y="244" text-anchor="middle" fill="#7b341e" font-size="13" font-family="Helvetica, Arial, sans-serif">作为视频第 0 帧</text>
+
+  <rect x="60" y="300" width="220" height="100" rx="14" fill="#e6f0ff" stroke="#2b6cb0" stroke-width="2"/>
+  <text x="170" y="334" text-anchor="middle" fill="#1a365d" font-size="17" font-weight="700" font-family="Helvetica, Arial, sans-serif">文本 Prompt</text>
+  <text x="170" y="358" text-anchor="middle" fill="#1a365d" font-size="13" font-family="Helvetica, Arial, sans-serif">"A cat walks across..."</text>
+  <text x="170" y="380" text-anchor="middle" fill="#1a365d" font-size="13" font-family="Courier, monospace">max_len = 512</text>
+
+  <rect x="60" y="440" width="220" height="110" rx="14" fill="#f0e6ff" stroke="#6b46c1" stroke-width="2"/>
+  <text x="170" y="474" text-anchor="middle" fill="#44337a" font-size="17" font-weight="700" font-family="Helvetica, Arial, sans-serif">初始噪声 (Gaussian)</text>
+  <text x="170" y="498" text-anchor="middle" fill="#44337a" font-size="13" font-family="Courier, monospace">x_T ~ N(0, I)</text>
+  <text x="170" y="520" text-anchor="middle" fill="#44337a" font-size="13" font-family="Courier, monospace">[16, F/4, H/8, W/8]</text>
+  <text x="170" y="540" text-anchor="middle" fill="#44337a" font-size="12" font-family="Helvetica, Arial, sans-serif">（VAE latent 形状）</text>
+
+  <!-- ====== MIDDLE-LEFT: ENCODERS ====== -->
+  <!-- CLIP -->
+  <rect x="350" y="140" width="220" height="120" rx="14" fill="#ffe9d6" stroke="#c05621" stroke-width="2.5"/>
+  <text x="460" y="172" text-anchor="middle" fill="#7b341e" font-size="18" font-weight="700" font-family="Helvetica, Arial, sans-serif">CLIP ViT-H/14</text>
+  <text x="460" y="197" text-anchor="middle" fill="#7b341e" font-size="13" font-family="Helvetica, Arial, sans-serif">图像 → 语义 token</text>
+  <text x="460" y="220" text-anchor="middle" fill="#7b341e" font-size="12" font-family="Courier, monospace">1 CLS + 16×16 patches</text>
+  <text x="460" y="242" text-anchor="middle" fill="#7b341e" font-size="13" font-family="Courier, monospace" font-weight="700">→ [257, 1280]</text>
+
+  <!-- VAE encoder -->
+  <rect x="350" y="285" width="220" height="130" rx="14" fill="#ffd9b3" stroke="#c05621" stroke-width="2.5"/>
+  <text x="460" y="315" text-anchor="middle" fill="#7b341e" font-size="18" font-weight="700" font-family="Helvetica, Arial, sans-serif">Wan-VAE Encoder</text>
+  <text x="460" y="337" text-anchor="middle" fill="#7b341e" font-size="12" font-family="Helvetica, Arial, sans-serif">3D Causal VAE</text>
+  <text x="460" y="357" text-anchor="middle" fill="#7b341e" font-size="12" font-family="Helvetica, Arial, sans-serif">时间 4× / 空间 8×8 下采样</text>
+  <text x="460" y="378" text-anchor="middle" fill="#7b341e" font-size="12" font-family="Courier, monospace">[3, F, H, W]</text>
+  <text x="460" y="398" text-anchor="middle" fill="#7b341e" font-size="13" font-family="Courier, monospace" font-weight="700">→ [16, F/4, H/8, W/8]</text>
+
+  <!-- T5 -->
+  <rect x="350" y="445" width="220" height="100" rx="14" fill="#cfe4ff" stroke="#2b6cb0" stroke-width="2.5"/>
+  <text x="460" y="478" text-anchor="middle" fill="#1a365d" font-size="18" font-weight="700" font-family="Helvetica, Arial, sans-serif">umT5 Encoder</text>
+  <text x="460" y="502" text-anchor="middle" fill="#1a365d" font-size="13" font-family="Helvetica, Arial, sans-serif">多语言文本编码器</text>
+  <text x="460" y="524" text-anchor="middle" fill="#1a365d" font-size="13" font-family="Courier, monospace" font-weight="700">→ [512, 4096]</text>
+
+  <!-- Arrows: inputs → encoders -->
+  <line x1="280" y1="200" x2="345" y2="200" stroke="#c05621" stroke-width="2.5" marker-end="url(#arrowImg)"/>
+  <line x1="280" y1="230" x2="345" y2="345" stroke="#c05621" stroke-width="2.5" marker-end="url(#arrowImg)" stroke-dasharray="4,3"/>
+  <text x="295" y="285" fill="#7b341e" font-size="11" font-family="Helvetica, Arial, sans-serif">(同一张图)</text>
+  <line x1="280" y1="350" x2="345" y2="495" stroke="#2b6cb0" stroke-width="2.5" marker-end="url(#arrowTxt)"/>
+
+  <!-- ====== MIDDLE: CONDITION ASSEMBLY ====== -->
+  <!-- Mask + y -->
+  <rect x="620" y="285" width="240" height="195" rx="14" fill="#fff5e6" stroke="#c05621" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="740" y="312" text-anchor="middle" fill="#7b341e" font-size="15" font-weight="700" font-family="Helvetica, Arial, sans-serif">构造条件 latent y</text>
+  <text x="740" y="335" text-anchor="middle" fill="#7b341e" font-size="12" font-family="Helvetica, Arial, sans-serif">（Path A：像素/结构保真）</text>
+
+  <rect x="640" y="352" width="100" height="38" rx="6" fill="#fde6cc" stroke="#c05621" stroke-width="1"/>
+  <text x="690" y="371" text-anchor="middle" fill="#7b341e" font-size="11" font-family="Courier, monospace">mask [4,T,H,W]</text>
+  <text x="690" y="384" text-anchor="middle" fill="#7b341e" font-size="10" font-family="Helvetica, Arial, sans-serif">frame0=1 其余=0</text>
+
+  <rect x="750" y="352" width="100" height="38" rx="6" fill="#ffd9b3" stroke="#c05621" stroke-width="1"/>
+  <text x="800" y="371" text-anchor="middle" fill="#7b341e" font-size="11" font-family="Courier, monospace">VAE(img+0s)</text>
+  <text x="800" y="384" text-anchor="middle" fill="#7b341e" font-size="10" font-family="Courier, monospace">[16,T,H,W]</text>
+
+  <text x="740" y="418" text-anchor="middle" fill="#7b341e" font-size="14" font-family="Helvetica, Arial, sans-serif">⬇ concat 通道</text>
+  <rect x="640" y="434" width="200" height="32" rx="6" fill="#f6ad55" stroke="#7b341e" stroke-width="1.5"/>
+  <text x="740" y="455" text-anchor="middle" fill="#1a202c" font-size="12" font-family="Courier, monospace" font-weight="700">y: [20, T, H, W]</text>
+
+  <!-- arrows VAE → y, mask → y -->
+  <line x1="570" y1="350" x2="638" y2="370" stroke="#c05621" stroke-width="2" marker-end="url(#arrowImg)"/>
+
+  <!-- Context assembly -->
+  <rect x="620" y="510" width="240" height="140" rx="14" fill="#eaf2ff" stroke="#2b6cb0" stroke-width="2" stroke-dasharray="5,3"/>
+  <text x="740" y="537" text-anchor="middle" fill="#1a365d" font-size="15" font-weight="700" font-family="Helvetica, Arial, sans-serif">组装 context 序列</text>
+  <text x="740" y="556" text-anchor="middle" fill="#1a365d" font-size="11" font-family="Helvetica, Arial, sans-serif">（Path B：高层语义）</text>
+
+  <rect x="638" y="572" width="95" height="30" rx="5" fill="#ffd9b3" stroke="#c05621" stroke-width="1"/>
+  <text x="685" y="592" text-anchor="middle" fill="#7b341e" font-size="11" font-family="Courier, monospace">MLPProj</text>
+  <text x="685" y="615" text-anchor="middle" fill="#7b341e" font-size="10" font-family="Courier, monospace">[257, dim]</text>
+
+  <text x="745" y="592" fill="#1a365d" font-size="14" font-weight="700" font-family="Helvetica, Arial, sans-serif">∥</text>
+
+  <rect x="760" y="572" width="95" height="30" rx="5" fill="#cfe4ff" stroke="#2b6cb0" stroke-width="1"/>
+  <text x="807" y="592" text-anchor="middle" fill="#1a365d" font-size="11" font-family="Courier, monospace">TextEmb</text>
+  <text x="807" y="615" text-anchor="middle" fill="#1a365d" font-size="10" font-family="Courier, monospace">[512, dim]</text>
+
+  <rect x="640" y="625" width="200" height="22" rx="5" fill="#90cdf4" stroke="#1a365d" stroke-width="1.5"/>
+  <text x="740" y="641" text-anchor="middle" fill="#1a202c" font-size="11" font-family="Courier, monospace" font-weight="700">context: [769, dim]</text>
+
+  <!-- Arrows from CLIP/T5 to context -->
+  <line x1="570" y1="200" x2="620" y2="580" stroke="#c05621" stroke-width="2" marker-end="url(#arrowImg)" stroke-dasharray="4,3"/>
+  <line x1="570" y1="495" x2="620" y2="590" stroke="#2b6cb0" stroke-width="2" marker-end="url(#arrowTxt)"/>
+
+  <!-- Noise → x -->
+  <rect x="620" y="680" width="240" height="70" rx="12" fill="#efe5ff" stroke="#6b46c1" stroke-width="2"/>
+  <text x="740" y="707" text-anchor="middle" fill="#44337a" font-size="14" font-weight="700" font-family="Helvetica, Arial, sans-serif">concat(x_t, y) 通道拼接</text>
+  <text x="740" y="732" text-anchor="middle" fill="#44337a" font-size="12" font-family="Courier, monospace">[16+20 = 36, T, H, W]</text>
+
+  <line x1="280" y1="495" x2="620" y2="710" stroke="#6b46c1" stroke-width="2.5" marker-end="url(#arrowNoise)"/>
+  <line x1="740" y1="466" x2="740" y2="678" stroke="#c05621" stroke-width="2" marker-end="url(#arrowImg)"/>
+
+  <!-- ====== DIT ====== -->
+  <rect x="920" y="220" width="250" height="540" rx="18" fill="#d1e8d7" stroke="#276749" stroke-width="2.5"/>
+  <text x="1045" y="256" text-anchor="middle" fill="#22543d" font-size="22" font-weight="700" font-family="Helvetica, Arial, sans-serif">DiT Backbone</text>
+  <text x="1045" y="280" text-anchor="middle" fill="#22543d" font-size="13" font-family="Helvetica, Arial, sans-serif">Diffusion Transformer</text>
+
+  <rect x="945" y="300" width="200" height="46" rx="8" fill="#ffffff" stroke="#276749" stroke-width="1.5"/>
+  <text x="1045" y="320" text-anchor="middle" fill="#22543d" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">Patchify (Conv3d)</text>
+  <text x="1045" y="338" text-anchor="middle" fill="#22543d" font-size="11" font-family="Courier, monospace">kernel=(1,2,2) → seq[S, dim]</text>
+
+  <rect x="945" y="360" width="200" height="46" rx="8" fill="#ffffff" stroke="#276749" stroke-width="1.5"/>
+  <text x="1045" y="380" text-anchor="middle" fill="#22543d" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">+ Timestep Emb</text>
+  <text x="1045" y="398" text-anchor="middle" fill="#22543d" font-size="11" font-family="Courier, monospace">sinusoidal → MLP → 6×dim</text>
+
+  <!-- Stacked blocks -->
+  <rect x="945" y="420" width="200" height="52" rx="8" fill="#a8d8b0" stroke="#276749" stroke-width="1.5"/>
+  <text x="1045" y="442" text-anchor="middle" fill="#22543d" font-size="14" font-weight="700" font-family="Helvetica, Arial, sans-serif">Block 1</text>
+  <text x="1045" y="462" text-anchor="middle" fill="#22543d" font-size="10" font-family="Helvetica, Arial, sans-serif">SelfAttn → CrossAttn → FFN</text>
+
+  <rect x="945" y="480" width="200" height="52" rx="8" fill="#a8d8b0" stroke="#276749" stroke-width="1.5"/>
+  <text x="1045" y="502" text-anchor="middle" fill="#22543d" font-size="14" font-weight="700" font-family="Helvetica, Arial, sans-serif">Block 2</text>
+  <text x="1045" y="522" text-anchor="middle" fill="#22543d" font-size="10" font-family="Helvetica, Arial, sans-serif">SelfAttn → CrossAttn → FFN</text>
+
+  <text x="1045" y="555" text-anchor="middle" fill="#22543d" font-size="20" font-weight="700" font-family="Helvetica, Arial, sans-serif">⋮</text>
+  <text x="1045" y="578" text-anchor="middle" fill="#22543d" font-size="12" font-family="Helvetica, Arial, sans-serif">× 32 层 (1.3B) / 40 层 (14B)</text>
+
+  <rect x="945" y="595" width="200" height="52" rx="8" fill="#a8d8b0" stroke="#276749" stroke-width="1.5"/>
+  <text x="1045" y="617" text-anchor="middle" fill="#22543d" font-size="14" font-weight="700" font-family="Helvetica, Arial, sans-serif">Block N</text>
+  <text x="1045" y="637" text-anchor="middle" fill="#22543d" font-size="10" font-family="Helvetica, Arial, sans-serif">SelfAttn → CrossAttn → FFN</text>
+
+  <rect x="945" y="660" width="200" height="42" rx="8" fill="#ffffff" stroke="#276749" stroke-width="1.5"/>
+  <text x="1045" y="679" text-anchor="middle" fill="#22543d" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">Head (AdaLN + Linear)</text>
+  <text x="1045" y="696" text-anchor="middle" fill="#22543d" font-size="11" font-family="Courier, monospace">unpatchify</text>
+
+  <rect x="945" y="712" width="200" height="36" rx="8" fill="#fefcbf" stroke="#b7791f" stroke-width="1.5"/>
+  <text x="1045" y="734" text-anchor="middle" fill="#744210" font-size="12" font-weight="700" font-family="Courier, monospace">v_pred: [16, T, H, W]</text>
+
+  <!-- Context arrow into DiT -->
+  <line x1="860" y1="640" x2="940" y2="480" stroke="#2b6cb0" stroke-width="2" marker-end="url(#arrowTxt)"/>
+  <text x="868" y="530" fill="#1a365d" font-size="11" font-family="Helvetica, Arial, sans-serif">context</text>
+  <text x="868" y="545" fill="#1a365d" font-size="11" font-family="Helvetica, Arial, sans-serif">→ cross-attn</text>
+
+  <line x1="860" y1="715" x2="940" y2="320" stroke="#6b46c1" stroke-width="2.5" marker-end="url(#arrowNoise)"/>
+  <text x="870" y="400" fill="#44337a" font-size="11" font-weight="700" font-family="Helvetica, Arial, sans-serif">x + y</text>
+
+  <!-- Timestep -->
+  <rect x="920" y="140" width="250" height="60" rx="12" fill="#fce7f3" stroke="#b83280" stroke-width="2"/>
+  <text x="1045" y="170" text-anchor="middle" fill="#702459" font-size="15" font-weight="700" font-family="Helvetica, Arial, sans-serif">Timestep t</text>
+  <text x="1045" y="190" text-anchor="middle" fill="#702459" font-size="12" font-family="Helvetica, Arial, sans-serif">sinusoidal → MLP → AdaLN ×6</text>
+  <line x1="1045" y1="200" x2="1045" y2="298" stroke="#b83280" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ====== RIGHT: LOOP + DECODER ====== -->
+  <!-- Sampling loop -->
+  <rect x="1210" y="405" width="160" height="160" rx="14" fill="#fef5e7" stroke="#b7791f" stroke-width="2"/>
+  <text x="1290" y="432" text-anchor="middle" fill="#744210" font-size="15" font-weight="700" font-family="Helvetica, Arial, sans-serif">Sampling Loop</text>
+  <text x="1290" y="455" text-anchor="middle" fill="#744210" font-size="12" font-family="Helvetica, Arial, sans-serif">Flow Matching</text>
+  <text x="1290" y="478" text-anchor="middle" fill="#744210" font-size="11" font-family="Courier, monospace">x_{t-1} = x_t − v·Δt</text>
+  <text x="1290" y="503" text-anchor="middle" fill="#744210" font-size="11" font-family="Helvetica, Arial, sans-serif">~ 25–50 步</text>
+  <text x="1290" y="526" text-anchor="middle" fill="#744210" font-size="11" font-family="Helvetica, Arial, sans-serif">每步可以做 CFG：</text>
+  <text x="1290" y="545" text-anchor="middle" fill="#744210" font-size="10" font-family="Courier, monospace">v = v_u + s·(v_c − v_u)</text>
+
+  <!-- loop arrow -->
+  <path d="M 1150 730 Q 1290 730 1290 570" stroke="#b7791f" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M 1290 405 Q 1290 320 1150 320" stroke="#b7791f" stroke-width="2.5" fill="none" marker-end="url(#arrow)" stroke-dasharray="5,3"/>
+  <text x="1215" y="380" fill="#744210" font-size="11" font-family="Helvetica, Arial, sans-serif">x_{t-1} 回注</text>
+
+  <!-- VAE Decoder -->
+  <rect x="1180" y="600" width="190" height="110" rx="14" fill="#ffd9b3" stroke="#c05621" stroke-width="2.5"/>
+  <text x="1275" y="630" text-anchor="middle" fill="#7b341e" font-size="17" font-weight="700" font-family="Helvetica, Arial, sans-serif">VAE Decoder</text>
+  <text x="1275" y="655" text-anchor="middle" fill="#7b341e" font-size="12" font-family="Courier, monospace">[16, F/4, H/8, W/8]</text>
+  <text x="1275" y="676" text-anchor="middle" fill="#7b341e" font-size="14" font-family="Helvetica, Arial, sans-serif">⬇</text>
+  <text x="1275" y="697" text-anchor="middle" fill="#7b341e" font-size="12" font-family="Courier, monospace" font-weight="700">[3, F, H, W]</text>
+
+  <!-- Output video -->
+  <rect x="1180" y="780" width="190" height="120" rx="14" fill="#e9fce8" stroke="#276749" stroke-width="2.5"/>
+  <text x="1275" y="812" text-anchor="middle" fill="#22543d" font-size="17" font-weight="700" font-family="Helvetica, Arial, sans-serif">输出视频</text>
+  <text x="1275" y="836" text-anchor="middle" fill="#22543d" font-size="12" font-family="Helvetica, Arial, sans-serif">F 帧 · HxW · RGB</text>
+  <text x="1275" y="858" text-anchor="middle" fill="#22543d" font-size="11" font-family="Helvetica, Arial, sans-serif">首帧 ≈ 输入图</text>
+  <text x="1275" y="878" text-anchor="middle" fill="#22543d" font-size="11" font-family="Helvetica, Arial, sans-serif">后续帧遵循文本</text>
+
+  <line x1="1275" y1="715" x2="1275" y2="776" stroke="#276749" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- ====== Legend ====== -->
+  <rect x="60" y="760" width="800" height="200" rx="14" fill="#ffffff" stroke="#486581" stroke-width="1.5" opacity="0.92"/>
+  <text x="80" y="790" fill="#102a43" font-size="16" font-weight="700" font-family="Helvetica, Arial, sans-serif">图例与关键概念</text>
+
+  <rect x="80" y="805" width="18" height="14" fill="#ffd9b3" stroke="#c05621"/>
+  <text x="108" y="817" fill="#102a43" font-size="13" font-family="Helvetica, Arial, sans-serif">图像相关数据通路（橙色）</text>
+
+  <rect x="80" y="827" width="18" height="14" fill="#cfe4ff" stroke="#2b6cb0"/>
+  <text x="108" y="839" fill="#102a43" font-size="13" font-family="Helvetica, Arial, sans-serif">文本相关数据通路（蓝色）</text>
+
+  <rect x="80" y="849" width="18" height="14" fill="#efe5ff" stroke="#6b46c1"/>
+  <text x="108" y="861" fill="#102a43" font-size="13" font-family="Helvetica, Arial, sans-serif">噪声 latent / 视频 latent（紫色）</text>
+
+  <rect x="80" y="871" width="18" height="14" fill="#d1e8d7" stroke="#276749"/>
+  <text x="108" y="883" fill="#102a43" font-size="13" font-family="Helvetica, Arial, sans-serif">DiT 主干（绿色）</text>
+
+  <rect x="80" y="893" width="18" height="14" fill="#fef5e7" stroke="#b7791f"/>
+  <text x="108" y="905" fill="#102a43" font-size="13" font-family="Helvetica, Arial, sans-serif">采样循环 / 输出（黄色）</text>
+
+  <text x="420" y="810" fill="#1a202c" font-size="13" font-weight="700" font-family="Helvetica, Arial, sans-serif">I2V 双路图像条件：</text>
+  <text x="420" y="830" fill="#1a202c" font-size="12" font-family="Helvetica, Arial, sans-serif">• Path A（结构/像素）：图 → VAE → y → 与 x 通道 concat</text>
+  <text x="420" y="848" fill="#1a202c" font-size="12" font-family="Helvetica, Arial, sans-serif">• Path B（语义）：图 → CLIP → 前置 context → cross-attn</text>
+  <text x="420" y="866" fill="#1a202c" font-size="12" font-family="Helvetica, Arial, sans-serif">• Path 文本：prompt → T5 → context 尾部 → cross-attn</text>
+
+  <text x="420" y="894" fill="#1a202c" font-size="12" font-family="Helvetica, Arial, sans-serif">• 首帧 mask = 1、其余帧 = 0：告诉模型"哪些地方要忠于输入图"</text>
+  <text x="420" y="912" fill="#1a202c" font-size="12" font-family="Helvetica, Arial, sans-serif">• DiT 预测的是 flow-matching 速度场 v，不是噪声 ε</text>
+</svg>
