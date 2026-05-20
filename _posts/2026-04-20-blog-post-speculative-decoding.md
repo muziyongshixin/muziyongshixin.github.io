@@ -15,6 +15,11 @@ toc: true
 
 > 本文从零开始，带你理解 LLM 推理加速的核心思路，读完之后你会明白：大模型为什么慢、投机解码如何加速、为什么加速后输出质量完全不变，以及 DDTree 这篇 2026 年的新论文究竟做了什么创新。
 
+<video controls style="width: 100%; max-width: 960px; display: block; margin: 2rem auto;">
+  <source src="/videos/spec-decoding.mp4" type="video/mp4">
+  你的浏览器不支持 HTML5 视频播放。
+</video>
+
 ---
 
 ## 1. 大模型推理为什么慢？
