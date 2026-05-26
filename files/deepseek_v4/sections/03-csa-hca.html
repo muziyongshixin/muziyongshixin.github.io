@@ -1,0 +1,398 @@
+<!-- ========== 3. CSA + HCA 混合注意力 ========== -->
+<section id="csa">
+  <h2><span class="num">3</span> CSA + HCA 混合注意力 <span class="en">/ V4 最大的创新</span></h2>
+  <p class="lead">
+    V4 的注意力核心是<b>两种 KV cache 压缩策略交替排列，再加一层滑动窗口兜底</b>。
+    这一节用交互式可视化把每个细节拆开讲清楚。
+  </p>
+
+  <h3>3.1 整体架构：三种 KV 视野协同工作</h3>
+  <div class="card">
+    <p>V4-Pro 主干 Transformer 一共 <b>61 层</b>，配置文件 <code>config.json</code> 的 <code>compress_ratios</code> 字段直接写明：</p>
+<pre><code>// V4-Pro compress_ratios（前两层都是 128 HCA，之后严格交替）
+[128, 128, 4, 128, 4, 128, 4, ..., 4, 128, 4, 0]
+//   ↑    ↑    ↑                          ↑
+//   HCA  HCA  CSA                        MTP（仅滑窗）
+
+// 主干：31 层 HCA + 30 层 CSA
+// 末尾 MTP block: compress_ratio = 0（不压缩，只保留最近 128 token）</code></pre>
+    <div class="grid-3" style="margin-top:16px">
+      <div>
+        <h4 style="color: var(--accent-3)">HCA 层（31 层）</h4>
+        <p class="small"><code>compress_ratio = 128</code><br>每 128 个 token 压成 1 条<br>不重叠 · 全看（不做稀疏）<br><b>用极低成本扫一遍全局大意</b></p>
+      </div>
+      <div>
+        <h4 style="color: var(--accent)">CSA 层（30 层）</h4>
+        <p class="small"><code>compress_ratio = 4</code><br>每 4 个 token 压成 1 条<br>重叠压缩 · 再用 Indexer 选 top-1024<br><b>从全局历史精选最相关细节</b></p>
+      </div>
+      <div>
+        <h4 style="color: var(--accent-2)">滑动窗口（每层都有）</h4>
+        <p class="small"><code>n_win = 128</code><br>最近 128 个 token 原样保留<br>不压缩 · 不稀疏<br><b>兜底最近上下文一个不丢</b></p>
+      </div>
+    </div>
+  </div>
+
+  <h3>3.2 交互可视化①：50K token 上下文，CSA / HCA / 滑窗各自看到什么？</h3>
+  <p>下面这条彩色带是一段 <b>10000 个 token</b> 的上下文。拖动当前 token 位置、切换层类型，观察每个 query 在不同层"看到"了哪些 KV：</p>
+
+  <div class="card">
+    <div class="slider-row">
+      <label>层类型</label>
+      <div class="seg-toggle" id="layerType">
+        <button class="active" data-v="csa">CSA 层 (4:1)</button>
+        <button data-v="hca">HCA 层 (128:1)</button>
+      </div>
+    </div>
+    <div class="slider-row">
+      <label>当前 token 位置</label>
+      <input type="range" id="qPos" min="500" max="10000" value="6000" step="50">
+      <span class="val" id="qPosV">6000 / 10000</span>
+    </div>
+
+    <div style="margin-top:18px">
+      <div class="vis-title">每一格 = 1 个 token；高亮 = 当前 query；亮色 = 实际参与本层 attention 计算的 KV</div>
+      <div class="token-row" id="tokenRow"></div>
+    </div>
+
+    <div class="legend" style="margin-top:12px">
+      <span class="legend-item"><span class="legend-dot" style="background:#30363d"></span>压缩前的 token（不存储）</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent)"></span>CSA 压缩后 KV（Indexer 选中）</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#6e7681;opacity:.35"></span>压缩后 KV（未被选中）</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent-3)"></span>HCA 压缩后 KV</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent-2)"></span>滑动窗口（最近 128）</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent-5)"></span>Query token</span>
+    </div>
+
+    <div class="grid-2" style="margin-top:18px;">
+      <div>
+        <h4 class="mt-0">本层实际参与计算的 KV 数</h4>
+        <p class="mono" id="kvCount" style="font-size:24px;color:var(--accent-2)">—</p>
+      </div>
+      <div>
+        <h4 class="mt-0">vs 标准全注意力</h4>
+        <p class="mono" id="kvRatio" style="font-size:24px;color:var(--accent-3)">—</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>3.3 Compressor 在干什么？—— 学习的加权平均</h3>
+  <p>CSA 和 HCA 在代码里是<b>同一个 <code>Compressor</code> 类</b>，区别只有一个参数 <code>compress_ratio</code>。
+     它做的事不是降采样（每 m 个取 1 个），也不是简单平均（每 m 个加起来除以 m），而是<b>学习的加权平均</b>：</p>
+
+<pre><code># Compressor 核心（简化版，来自 inference/model.py）
+kv    = self.wkv(x)        # ① 每个 token 投影成一条 latent (MLA 的遗产)
+score = self.wgate(x)      # ② 同时给每个 token 算一个"重要度分数"
+score += self.ape          #    + 可学习的位置偏置（块内第几位）
+
+# ③ 形状 [B, 组数, m, 512]，softmax 沿 dim=2（组内 m 个分数归一化）
+#    然后用这些权重对 m 条 latent 加权求和 → m 条变 1 条
+kv = (kv * score.softmax(dim=2)).sum(dim=2)
+</code></pre>
+
+  <p>哪个 token 更重要、权重更高，<b>是模型自己学出来的</b>。<code>self.ape</code> 是可学习的位置偏置——
+     块内第 1、2、3、4 个 token 各有不同的偏置项，让模型能学会"块内哪个位置通常更重要"。
+     压缩后的 1 条 latent 是原始 m 条的<b>"智能摘要"</b>。</p>
+
+  <div class="formula">
+    S<sub>i</sub> = Softmax<sub>row</sub>( Z<sup>a</sup><sub>mi:m(i+1)</sub> + B<sup>a</sup> ; Z<sup>b</sup><sub>m(i-1):mi</sub> + B<sup>b</sup> )
+    <br>C<sup>Comp</sup><sub>i</sub> = Σ S<sub>j</sub> ⊙ C<sub>j</sub>     <span class="small">（论文式 11、12）</span>
+  </div>
+
+  <h3>3.4 CSA 的精巧细节：重叠压缩（HCA 没有）</h3>
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0">HCA：不重叠</h4>
+<pre style="font-size:12px"><code>Token: [t1..t128] [t129..t256] [t257..t384]
+压缩:      c1          c2           c3
+
+块边界清晰
+每条 c_i 看 128 个原 token</code></pre>
+    </div>
+    <div class="card">
+      <h4 class="mt-0">CSA：重叠</h4>
+<pre style="font-size:12px"><code>Token: [t1 t2 t3 t4][t5 t6 t7 t8][t9..t12]
+            ↓             ↓           ↓
+重叠压缩:   c1            c2'         c3'
+                          ↑  c2' 同时看 t1~t8
+
+每条 c_i 实际融合 8 个 token 的信息
+压缩比仍是 4:1</code></pre>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>为什么差别这么大？</strong>
+    <ul style="margin-top:8px">
+      <li><b>CSA 块只有 4 个 token</b>，块边界被切断的代价大（一个完整词组可能被劈开）—— 重叠收益高</li>
+      <li><b>HCA 块 128 个 token</b>，块边界被切断的代价小（一个块覆盖好几句话）—— 重叠收益小，但代价巨大（投影维度要翻倍）</li>
+    </ul>
+    <p style="margin-top:8px">所以 CSA 重叠、HCA 不重叠，<b>不是设计偏好，是数学算账</b>。</p>
+  </div>
+
+  <h3>3.5 Lightning Indexer：FP4 全程的 top-k 选择器</h3>
+  <p>CSA 层压完之后还要再选 top-k。这一步由 Lightning Indexer 完成：</p>
+  <ul>
+    <li><b>独立路径</b>：和主路径完全分离，自己的 Q 投影、K 投影、Compressor</li>
+    <li><b>FP4 全程</b>：Hadamard 旋转 + FP4 量化，存的、读的、算的都是 FP4</li>
+    <li><b>QAT 训练</b>：训练时就按 FP4 精度优化（不是事后量化）</li>
+    <li><b>排序对精度容忍度高</b>：只需要知道"谁排前面"，不需要知道分数差 0.001 还是 0.002</li>
+  </ul>
+  <div class="card">
+    <h4 class="mt-0">主路径 vs Indexer 路径的精度分工</h4>
+    <table>
+      <thead><tr><th></th><th>主路径（CSA 内容）</th><th>Indexer 路径（打分）</th></tr></thead>
+      <tbody>
+        <tr><td>Q / K 精度</td><td>FP8</td><td class="highlight">FP4</td></tr>
+        <tr><td>压缩 KV cache 精度</td><td>FP8</td><td class="highlight">FP4</td></tr>
+        <tr><td>能不能再砍精度</td><td><b>不能</b>（CSA 压缩已有损，再砍内容就没了）</td><td>能（只排序，容错高）</td></tr>
+        <tr><td>对应代码</td><td><code>CoreAttn(...)</code></td><td><code>rotate_activation + fp4_act_quant</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>3.6 滑动窗口：兜底的"短期记忆"</h3>
+  <p>CSA 和 HCA 都需要"凑满一个块"才能压缩。CSA 要凑 4 个，HCA 要凑 <b>128 个</b>。在凑满之前呢？
+     凑不满的尾巴必须原样保留——这就是滑动窗口的作用。</p>
+  <p><b>为什么是 128？</b>因为 HCA 最多有 127 个 token 还在等压缩，128 刚好把最坏情况覆盖。
+     CSA 层虽然只需要 3 个，但<b>统一一个数字简化实现</b>，多存几十条的开销可以忽略（128 × 576 字节 ≈ 0.07 MB/层）。</p>
+
+  <h3>3.7 交互可视化②：算笔账——50K 上下文每层 KV cache 多少？</h3>
+  <p>调节上下文长度，看 CSA 层、HCA 层、滑窗、Indexer 各自占多少：</p>
+
+  <div class="card">
+    <div class="slider-row">
+      <label>上下文长度</label>
+      <input type="range" id="ctxLen" min="1000" max="1000000" value="50000" step="1000">
+      <span class="val" id="ctxLenV">50K tokens</span>
+    </div>
+
+    <div class="chart-canvas-wrap" style="height: 340px; margin-top:16px;">
+      <canvas id="kvBreakdown"></canvas>
+    </div>
+
+    <div class="grid-4" style="margin-top:18px">
+      <div class="card" style="margin:0; padding: 14px; text-align:center">
+        <div class="small">CSA 层（30 层）</div>
+        <div class="mono" id="csaTotal" style="font-size:18px; color: var(--accent); margin-top:4px">—</div>
+      </div>
+      <div class="card" style="margin:0; padding: 14px; text-align:center">
+        <div class="small">HCA 层（31 层）</div>
+        <div class="mono" id="hcaTotal" style="font-size:18px; color: var(--accent-3); margin-top:4px">—</div>
+      </div>
+      <div class="card" style="margin:0; padding: 14px; text-align:center">
+        <div class="small">V4-Pro 合计</div>
+        <div class="mono" id="v4Total" style="font-size:18px; color: var(--accent-2); margin-top:4px">—</div>
+      </div>
+      <div class="card" style="margin:0; padding: 14px; text-align:center">
+        <div class="small">vs MHA 标准</div>
+        <div class="mono" id="vsMha" style="font-size:18px; color: var(--accent-5); margin-top:4px">—</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>3.8 Other Details（论文 2.3.3）：三个容易忽略的小设计</h3>
+  <div class="grid-3">
+    <div class="card">
+      <h4 class="mt-0">Query / KV Entry Normalization</h4>
+      <p class="small">对 Query 和压缩 KV entries 做额外 RMSNorm，避免 attention logits 爆炸。
+         这是 V4 不需要再用 QK-Clip 技巧的原因。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0">Partial RoPE</h4>
+      <p class="small">只在每条 KV 的<b>最后 64 维</b>应用 RoPE。Core attention 输出会带绝对位置嵌入，
+         所以对 output 也施加位置 <code>-i</code> 的 RoPE，让"距离"重新注入。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0">Attention Sink</h4>
+      <p class="small">在 softmax 分母里加可学习的 <code>exp(sink)</code>——给模型一个"弃权票箱"。
+         <b>对长上下文几乎是必需品</b>，OpenAI GPT-5 也用了。</p>
+    </div>
+  </div>
+
+  <div class="formula">
+    s<sub>h,i,j</sub> = exp(z<sub>h,i,j</sub>) / ( Σ<sub>k</sub> exp(z<sub>h,i,k</sub>) + <span style="color:var(--accent-3)">exp(z'<sub>h</sub>)</span> )
+    <span class="small" style="margin-left:12px">← 多出来的 exp(z'<sub>h</sub>) 就是弃权票箱</span>
+  </div>
+
+  <h3>3.9 训练 vs 推理：一个比喻</h3>
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-4)">V3.2 DSA：戴眼镜上街</h4>
+      <p>一个看惯了高清电视的人，平时戴个轻便的近视眼镜上街。眼镜让他看世界省力，
+         但他大脑里"世界长什么样"的模型来自高清电视。<b>眼镜和大脑会有微妙的不一致。</b></p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-2)">V4 CSA/HCA：眼镜长在脑子里</h4>
+      <p>一个从小就近视、从小就戴这副眼镜的人。他大脑里"世界长什么样"就是这副眼镜下的样子。
+         <b>眼镜和大脑长在一起。</b></p>
+    </div>
+  </div>
+  <p class="small">这就是 V4 推理 FLOPs 砍到 V3.2 的 27%、KV cache 砍到 10% 的根本原因——
+     不是眼镜更好，是<b>眼镜从一开始就长在脑子里</b>。</p>
+
+  <!-- ========== 交互脚本 ========== -->
+  <script>
+  (function(){
+    // === 可视化① token 行 ===
+    const N = 200; // 200 个色块代表 10000 token
+    const tokensPerCell = 50;
+    const row = document.getElementById('tokenRow');
+    if (!row) return;
+    // 初始化色块
+    for (let i = 0; i < N; i++) {
+      const d = document.createElement('div');
+      d.className = 'tk';
+      d.title = `tokens ${i*tokensPerCell}-${(i+1)*tokensPerCell-1}`;
+      row.appendChild(d);
+    }
+    const tks = [...row.children];
+
+    let layerType = 'csa';
+    document.querySelectorAll('#layerType button').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#layerType button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        layerType = b.dataset.v;
+        render();
+      });
+    });
+    const qPos = document.getElementById('qPos');
+    qPos.addEventListener('input', render);
+
+    function render() {
+      const pos = +qPos.value;
+      document.getElementById('qPosV').textContent = `${pos.toLocaleString()} / 10,000`;
+      const qIdx = Math.floor(pos / tokensPerCell);
+
+      tks.forEach(t => t.className = 'tk');
+      const csaTopK = 1024, swWin = 128;
+
+      // 滑动窗口：最近 128 token
+      const swStart = Math.max(0, pos - swWin);
+      // 压缩区：从 0 到 swStart
+      let participating = 0;
+
+      if (layerType === 'csa') {
+        // 在压缩区内 4:1 压成 N/4 条；Indexer 选 top-1024 条
+        const compressedTotal = Math.floor(swStart / 4);
+        const selected = Math.min(csaTopK, compressedTotal);
+        participating = selected + Math.min(swWin, pos);
+        // 染色：未来 token 不染；压缩区按"是否被选中"染
+        // 选中的均匀分布在压缩区前半段（模拟"前文更可能被选中"）
+        for (let i = 0; i < N; i++) {
+          const startTok = i * tokensPerCell;
+          if (startTok >= pos) continue;
+          // 滑动窗口区
+          if (startTok >= swStart) {
+            tks[i].classList.add('sw');
+            continue;
+          }
+          // 压缩区：按比例选中
+          const ratio = selected / compressedTotal;
+          // 让"距离越近"被选中概率越大
+          const dist = (swStart - startTok) / swStart;
+          const selProb = ratio * (1.6 - 0.6 * dist);
+          if (Math.random() < selProb || (i % 2 === 0 && ratio > 0.5)) {
+            tks[i].classList.add('csa');
+          } else {
+            tks[i].classList.add('compressed');
+          }
+        }
+      } else {
+        // HCA：128:1 全看
+        const compressedTotal = Math.floor(swStart / 128);
+        participating = compressedTotal + Math.min(swWin, pos);
+        for (let i = 0; i < N; i++) {
+          const startTok = i * tokensPerCell;
+          if (startTok >= pos) continue;
+          if (startTok >= swStart) tks[i].classList.add('sw');
+          else tks[i].classList.add('hca');
+        }
+      }
+      // Query token
+      if (qIdx < N) tks[qIdx].classList.add('query', 'hot');
+
+      document.getElementById('kvCount').textContent = participating.toLocaleString() + ' 条 KV';
+      const ratio = participating / pos;
+      document.getElementById('kvRatio').textContent = `${(ratio*100).toFixed(2)}% （省 ${(1/ratio).toFixed(1)}×）`;
+    }
+    render();
+
+    // === 可视化② KV breakdown ===
+    const elCh = document.getElementById('kvBreakdown');
+    if (!elCh) return;
+    const ctx2 = elCh.getContext('2d');
+    const chart = new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: ['MHA 标准（参考）', 'MLA only（V2）', 'V4 CSA/HCA'],
+        datasets: [
+          { label: '主 KV', data: [0,0,0], backgroundColor: '#4493f8', stack: 'a' },
+          { label: 'Indexer KV', data: [0,0,0], backgroundColor: '#ffa657', stack: 'a' },
+          { label: '滑窗', data: [0,0,0], backgroundColor: '#7ee787', stack: 'a' },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        indexAxis: 'y',
+        scales: {
+          x: { type: 'logarithmic', stacked: true,
+            ticks: { color: '#8b949e', callback: v => v >= 1024 ? (v/1024).toFixed(1)+' GB' : v.toFixed(0) + ' MB' },
+            grid: { color: 'rgba(139,148,158,0.1)' } },
+          y: { stacked: true, ticks: { color: '#8b949e' }, grid: { display: false } }
+        },
+        plugins: {
+          tooltip: { callbacks: { label: c => c.dataset.label + ': ' + c.parsed.x.toFixed(2) + ' MB' } },
+          legend: { labels: { color: '#e6edf3' } }
+        }
+      }
+    });
+
+    const ctxLen = document.getElementById('ctxLen');
+    function updateChart() {
+      const n = +ctxLen.value;
+      document.getElementById('ctxLenV').textContent = n >= 1000000 ? '1M tokens' : (n/1000).toFixed(0) + 'K tokens';
+
+      const L_CSA = 30, L_HCA = 31, L = 61;
+      const swEntries = 128;
+      // 字节/条：主 KV 576B (FP8 latent 512 维 + 部分BF16 RoPE)，Indexer ~ 64*128/2 = 4096B (FP4)
+      const bytesMain = 576, bytesIdx = 4096, bytesSW = 576;
+
+      // CSA 层
+      const csaComp = Math.ceil(n / 4);
+      const csaPerLayer = (csaComp * bytesMain + csaComp * bytesIdx + swEntries * bytesSW) / 1024 / 1024;
+      // HCA 层
+      const hcaComp = Math.ceil(n / 128);
+      const hcaPerLayer = (hcaComp * bytesMain + swEntries * bytesSW) / 1024 / 1024;
+
+      const csaTotal = csaPerLayer * L_CSA;
+      const hcaTotal = hcaPerLayer * L_HCA;
+      const v4Total = csaTotal + hcaTotal;
+
+      // MLA only：n × 576B × 61
+      const mlaTotal = (n * bytesMain * L) / 1024 / 1024;
+      // MHA：n × 14336B × 61
+      const mhaTotal = (n * 14336 * L) / 1024 / 1024;
+
+      // 拆解 V4：主 KV / Idx / SW
+      const v4Main = (csaComp * bytesMain * L_CSA + hcaComp * bytesMain * L_HCA) / 1024 / 1024;
+      const v4Idx  = (csaComp * bytesIdx * L_CSA) / 1024 / 1024;
+      const v4SW   = (swEntries * bytesSW * L) / 1024 / 1024;
+
+      chart.data.datasets[0].data = [mhaTotal, mlaTotal, v4Main];
+      chart.data.datasets[1].data = [0, 0, v4Idx];
+      chart.data.datasets[2].data = [0, 0, v4SW];
+      chart.update();
+
+      function fmt(mb) { return mb >= 1024 ? (mb/1024).toFixed(2) + ' GB' : mb.toFixed(1) + ' MB'; }
+      document.getElementById('csaTotal').textContent = fmt(csaTotal);
+      document.getElementById('hcaTotal').textContent = fmt(hcaTotal);
+      document.getElementById('v4Total').textContent = fmt(v4Total);
+      document.getElementById('vsMha').textContent = `↓ ${(mhaTotal/v4Total).toFixed(0)}×`;
+    }
+    ctxLen.addEventListener('input', updateChart);
+    updateChart();
+  })();
+  </script>
+
+</section>

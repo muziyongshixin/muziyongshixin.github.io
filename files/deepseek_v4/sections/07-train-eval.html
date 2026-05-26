@@ -1,0 +1,597 @@
+<!-- ========== 7. 训练流程 ========== -->
+<section id="train">
+  <h2><span class="num">7</span> 训练流程 <span class="en">/ 33T token + 渐进式长上下文</span></h2>
+  <p class="lead">
+    架构、注意力、优化器都讲完了，剩下最后一个问题：
+    <b>怎么把 1.6T 参数 × 33T token 真的跑下来？</b>
+    V4 的训练 pipeline 有几个值得记住的设计：
+    <span style="color:var(--accent-2)">渐进式上下文扩展</span>、
+    <span style="color:var(--accent-3)">先 dense 再 sparse 的注意力 warmup</span>、
+    <span style="color:var(--accent-5)">领域 specialist → On-Policy Distillation 统一</span>。
+  </p>
+
+  <h3>7.1 预训练数据：33T token，质比量更关键</h3>
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent)">数据规模</h4>
+      <ul>
+        <li><b>V4-Pro</b>：33T tokens（≈ V3 的 1.3 倍）</li>
+        <li><b>V4-Flash</b>：32T tokens（与 Pro 数据基本对齐）</li>
+        <li>采样比例向<b>长文档</b>倾斜：科技论文、技术报告、长程代码仓库</li>
+        <li>显著增加<b>数学</b>和<b>代码</b>样本，加大多语言覆盖</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent-4)">数据清洗的"坑"</h4>
+      <p class="small">V4 论文专门提到：必须过滤掉<b>自动生成的批量内容</b>（spam-like template、模板化爬虫输出）。
+        这类样本表面看起来"自然"，但会让模型在某些 token 分布上<b>过度自信</b>，造成训练崩塌。</p>
+      <p class="small" style="color:var(--text-muted)">教训：到了万亿 token 级别，<b>数据质量 &gt; 数据数量</b>。
+        多 1T 的劣质数据，可能比少 5T 的优质数据还伤。</p>
+    </div>
+  </div>
+
+  <h3>7.2 渐进式上下文扩展：不是一上来就训百万</h3>
+  <p>V4 没有一开始就拉满 1M 上下文——那样既贵又学不好。它分四个阶段逐步扩展序列长度：</p>
+
+  <div class="timeline">
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">Stage 1 · 4K</span><span class="tl-year">起步</span>
+        <span class="tl-tag">dense attention</span>
+      </div>
+      <div class="tl-problem">用<b>完整注意力</b>训练 1T+ token。让模型先学会"怎么看完一段话"——
+        这一步打稳基本语义和句法。如果一开始就上稀疏，模型还没学会注意，就让它"挑着看"，结果很糟。</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">Stage 2 · 16K</span><span class="tl-year">中段</span>
+        <span class="tl-tag">dense attention</span>
+      </div>
+      <div class="tl-problem">继续保持 dense，让 RoPE 频率适应更长的位置编码，loss 在 16K 上充分下降。</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name" style="color:var(--accent-3)">Stage 3 · 64K</span><span class="tl-year">关键切换</span>
+        <span class="tl-tag" style="background:rgba(255,166,87,0.18);color:var(--accent-3)">dense → sparse warmup</span>
+      </div>
+      <div class="tl-problem" style="color:var(--accent-3)">
+        引入 DSA + CSA/HCA，<b>先用一个 short stage 暖身 Lightning Indexer</b>——
+        让 indexer 先学会"哪些 token 重要"，再正式切到稀疏。
+        这个 warmup 几十亿 token 就够，但没有它，sparse attention 收敛会很慢。</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name" style="color:var(--accent-2)">Stage 4 · 1M</span><span class="tl-year">长上下文</span>
+        <span class="tl-tag" style="background:rgba(126,231,135,0.18);color:var(--accent-2)">sparse attention</span>
+      </div>
+      <div class="tl-problem" style="color:var(--accent-2)">
+        全面切到稀疏注意力，序列长度逐步拉到 1M。<b>大部分训练 token 在这一阶段消耗</b>。
+        模型从一开始就在"稀疏模式"下学习——不是事后给它套副眼镜。</div>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <strong>关键设计哲学</strong>
+    "<b>train with sparse, infer with sparse</b>"——而不是 dense 训完再蒸馏成 sparse。
+    V4 是第一个在万亿 token 级别上、<b>从训练阶段就让模型适应稀疏注意力</b>的旗舰开源模型。
+    这是它能在 128K 内几乎没有掉点的根本原因。
+  </div>
+
+  <h3>7.3 关键超参数</h3>
+  <div class="card">
+    <table>
+      <thead><tr><th>类别</th><th>超参</th><th>V4-Flash</th><th>V4-Pro</th><th>备注</th></tr></thead>
+      <tbody>
+        <tr><td rowspan="3">Muon（99.9% 参数）</td><td>momentum μ</td><td colspan="2" style="text-align:center">0.95</td><td>Nesterov 变体</td></tr>
+        <tr><td>weight decay λ</td><td colspan="2" style="text-align:center">0.1</td><td>解耦施加</td></tr>
+        <tr><td>RMS rescale γ</td><td colspan="2" style="text-align:center">0.18</td><td>对齐 AdamW 典型 RMS</td></tr>
+        <tr><td rowspan="3">AdamW（embedding/RMSNorm）</td><td>β₁ / β₂</td><td colspan="2" style="text-align:center">0.9 / 0.95</td><td>较小 β₂，更敏感</td></tr>
+        <tr><td>ε</td><td colspan="2" style="text-align:center">1e-20</td><td>极小，避免数值偏置</td></tr>
+        <tr><td>覆盖参数量</td><td colspan="2" style="text-align:center">&lt; 2B</td><td>主要是嵌入和归一化</td></tr>
+        <tr><td>学习率</td><td>peak lr</td><td>2.7e-4</td><td>2.0e-4</td><td>Pro 更小因为模型更大</td></tr>
+        <tr><td>Batch</td><td>tokens/step</td><td>75.5M</td><td>94.4M</td><td>大 batch 配合稳健优化器</td></tr>
+        <tr><td rowspan="2">MTP</td><td>loss weight（主）</td><td colspan="2" style="text-align:center">0.3</td><td>大部分训练阶段</td></tr>
+        <tr><td>loss weight（衰减期）</td><td colspan="2" style="text-align:center">0.1</td><td>学习率衰减阶段降权，避免干扰精调</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>7.4 后训练 Pipeline：V4 的关键改动</h3>
+  <p>V3.2 用的是"<b>SFT + 混合 RL</b>"——一个 RL 阶段同时优化所有领域，结果是各领域互相打架，调参非常痛苦。
+     V4 把这一阶段彻底重写成<b>两阶段范式</b>：</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent)">Stage A · 领域 Specialist 训练</h4>
+      <p class="small">把后训练拆成多个<b>独立领域</b>：</p>
+      <ul>
+        <li>数学推理</li>
+        <li>代码生成与调试</li>
+        <li>Agent 工具调用</li>
+        <li>指令遵循与对话</li>
+      </ul>
+      <p class="small">每个领域独立训练一个 specialist：</p>
+      <div class="formula" style="margin:8px 0;font-size:14px">
+        SFT (高质量领域数据) → RL via <span style="color:var(--accent-3)">GRPO</span>
+      </div>
+      <p class="small" style="color:var(--text-muted)">
+        GRPO = Group Relative Policy Optimization，DeepSeek 自家的 RL 算法，不需要 value model，对一组 rollout 做相对排名学习。
+      </p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent-2)">Stage B · On-Policy Distillation（OPD）</h4>
+      <p class="small">把所有 specialist 整合成<b>单一统一模型</b>：</p>
+      <ul>
+        <li>学生模型 = actor，自己采样 rollout</li>
+        <li>对每条 rollout，让对应领域的 teacher 给出 token 分布</li>
+        <li>优化学生与 teacher 的<b>反向 KL 散度</b></li>
+        <li>没有 reward model、没有 advantage 估计，训练信号极稳定</li>
+      </ul>
+      <p class="small" style="color:var(--text-muted)">
+        相比 V3.2 的混合 RL，<b>完全替换为 OPD</b>——更稳定、更容易扩展到更多领域。
+        这是 V4 后训练最重要的一次架构变更。
+      </p>
+    </div>
+  </div>
+
+  <h3>7.5 三种推理模式：让用户自己挑预算</h3>
+  <p>V4 在推理时支持三种模式（论文 Table 2/3）。一个模型，<b>三套体验</b>，按任务难度切换：</p>
+  <div class="grid-3">
+    <div class="card" style="border-color:rgba(68,147,248,0.4)">
+      <h4 class="mt-0" style="color:var(--accent)">Non-think</h4>
+      <p class="small"><b>快速直觉</b>，无 chain-of-thought。</p>
+      <p class="small" style="color:var(--text-muted)">适合：闲聊、简单问答、低延迟场景。</p>
+    </div>
+    <div class="card" style="border-color:rgba(255,166,87,0.4)">
+      <h4 class="mt-0" style="color:var(--accent-3)">Think High</h4>
+      <p class="small"><b>显式推理链</b>，中等推理预算。</p>
+      <p class="small" style="color:var(--text-muted)">适合：复杂逻辑题、长程代码、agent 任务。</p>
+    </div>
+    <div class="card" style="border-color:rgba(126,231,135,0.4)">
+      <h4 class="mt-0" style="color:var(--accent-2)">Think Max</h4>
+      <p class="small"><b>最大推理努力</b>，384K+ 上下文。</p>
+      <p class="small" style="color:var(--text-muted)">适合：数学/代码竞赛、IMO 级别题目、需要长 chain-of-thought 的硬题。</p>
+    </div>
+  </div>
+
+  <h3>7.6 Generative Reward Model（GRM）</h3>
+  <div class="card">
+    <p>传统 RLHF 用<b>标量奖励模型</b>（scalar RM）：给一条 rollout 打个分。V4 换成了 <b>Generative RM</b>——
+       <b>actor 网络本身</b>就是 GRM，能生成"评判文本"再自己判断好坏。</p>
+    <p class="small">三个好处：</p>
+    <ul>
+      <li><b>少量标注高效泛化</b>：rubric-guided RL 数据只需少量人工标注 rubric，GRM 就能学会"按 rubric 打分"。</li>
+      <li><b>避免 reward hacking</b>：GRM 输出文本判断而非裸分数，更难被 actor 钻空子。</li>
+      <li><b>统一架构</b>：actor 与 RM 共享权重，省下一份模型的训练和服务成本。</li>
+    </ul>
+  </div>
+
+  <div class="callout success">
+    <strong>训练流程一句话</strong>
+    <b>渐进式上下文 + 训练即稀疏 + Muon 稳收敛 + 后训练拆 specialist 再 OPD 统一</b>——
+    四件事让 1.6T × 33T 这种量级的训练，<b>用约 520 万美元就跑完了</b>。
+  </div>
+</section>
+
+
+<!-- ========== 8. 评测结果 ========== -->
+<section id="eval">
+  <h2><span class="num">8</span> 评测结果 <span class="en">/ V4 到底有多强</span></h2>
+  <p class="lead">
+    论文的 Table 6/7/8 给出了大量 benchmark 数字。这一节挑最有代表性的几个，
+    既看 V4 的<b>亮眼之处</b>（数学/编程竞赛已经是顶级），也看<b>短板</b>（长上下文 1M、agent 任务相对落后）。
+  </p>
+
+  <h3>8.1 与闭源前沿模型对比</h3>
+  <p class="small">下图对比 DeepSeek-V4-Pro-Max 与 GPT-5.4、Claude Opus-4.6、Gemini-3.1-Pro 在六个关键 benchmark 上的表现。数据来自 V4 论文 Table 6。</p>
+
+  <div class="chart-box">
+    <div class="seg-toggle" style="margin-bottom:12px">
+      <button class="seg-btn active" data-view="radar">雷达图</button>
+      <button class="seg-btn" data-view="bar">分组柱状图</button>
+    </div>
+    <div class="chart-canvas-wrap" style="height: 380px">
+      <canvas id="evalChart"></canvas>
+    </div>
+    <p class="small" style="margin-top:10px;color:var(--text-muted)">
+      所有指标已归一化到 0-100（HMMT/LCB/SimpleQA/SWE 直接用百分制；Codeforces Rating 按线性映射到 100 ≈ 3300 分；MRCR-1M 用论文原值）。
+    </p>
+  </div>
+
+  <h3>8.2 关键 Benchmark 详表</h3>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Benchmark</th>
+          <th style="color:var(--accent-2)">DS-V4-Pro</th>
+          <th>Claude Opus-4.6</th>
+          <th>GPT-5.4</th>
+          <th>Gemini-3.1-Pro</th>
+          <th>评价</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>LiveCodeBench</td><td class="highlight">93.5</td><td>88.8</td><td>—</td><td>91.7</td><td style="color:var(--accent-2)">SOTA</td></tr>
+        <tr><td>Codeforces Rating</td><td class="highlight">3206</td><td>—</td><td>3168</td><td>3052</td><td style="color:var(--accent-2)">SOTA（人类约第 23）</td></tr>
+        <tr><td>SWE-Verified</td><td>80.6</td><td>80.8</td><td>—</td><td>—</td><td>持平</td></tr>
+        <tr><td>Terminal-Bench 2.0</td><td>67.9</td><td>—</td><td class="highlight">75.1</td><td>—</td><td style="color:var(--accent-4)">落后</td></tr>
+        <tr><td>MRCR 1M</td><td>83.5</td><td class="highlight">92.9</td><td>—</td><td>76.3</td><td style="color:var(--accent-4)">不如 Opus 4.6</td></tr>
+        <tr><td>HMMT 2026 Feb</td><td>95.2</td><td>—</td><td class="highlight">97.7</td><td>—</td><td>差距很小</td></tr>
+        <tr><td>Putnam-2025</td><td class="highlight">120/120</td><td>—</td><td>—</td><td>—</td><td style="color:var(--accent-2)">满分！</td></tr>
+        <tr><td>SimpleQA-Verified</td><td>57.9</td><td>—</td><td>—</td><td class="highlight">75.6</td><td style="color:var(--accent-4)">事实知识弱</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>8.3 长上下文能力：MRCR 8-needle</h3>
+  <p class="small">长上下文 retrieval 能力对应的是 8 根针的 MRCR 测试，从 8K 拉到 1M。</p>
+
+  <div class="chart-box">
+    <div class="chart-canvas-wrap" style="height: 320px">
+      <canvas id="mrcrChart"></canvas>
+    </div>
+    <p class="small" style="margin-top:10px">
+      <b>解读</b>：V4-Pro 在 128K 以内几乎没掉点（&gt; 0.9），1M 时降到 0.59 但仍可用；
+      V4-Flash 因为更小，1M 时降到 0.49——但<b>整体 1M 长上下文能力依然在第一梯队</b>。
+      唯一差距：相比 Claude Opus 4.6 在 1M 时的 92.9 还有空间。
+    </p>
+  </div>
+
+  <h3>8.4 V4-Flash vs V4-Pro vs V3.2</h3>
+  <div class="card">
+    <table>
+      <thead><tr><th>Benchmark</th><th>V3.2 Exp</th><th>V4-Flash-Max</th><th>V4-Pro-Max</th><th>Pro 相对 V3.2 提升</th></tr></thead>
+      <tbody>
+        <tr><td>LiveCodeBench</td><td>~78</td><td>91.6</td><td class="highlight">93.5</td><td style="color:var(--accent-2)">+15.5</td></tr>
+        <tr><td>HLE（Humanity's Last Exam）</td><td>~22</td><td>34.8</td><td class="highlight">37.7</td><td style="color:var(--accent-2)">+15.7</td></tr>
+        <tr><td>MRCR 1M</td><td>~70</td><td>78.7</td><td class="highlight">83.5</td><td style="color:var(--accent-2)">+13.5</td></tr>
+      </tbody>
+    </table>
+    <p class="small" style="color:var(--text-muted);margin-top:10px">
+      V4-Flash（小模型）在多数任务上<b>接近 V4-Pro</b>——说明架构改造（CSA/HCA + mHC + Muon）的收益不是只来自大模型。
+    </p>
+  </div>
+
+  <h3>8.5 真实工程任务：R&amp;D Coding（论文 Table 8）</h3>
+  <p class="small">DeepSeek 内部真实 R&amp;D 任务（200 道），比公开 benchmark 更能反映"实际可不可用"：</p>
+  <div class="vis-wrap">
+    <div class="vis-title">R&amp;D Coding 通过率</div>
+    <div class="card" style="margin:0">
+      <table>
+        <tbody>
+          <tr><td>Haiku 4.5</td><td style="width:60%"><div style="background:linear-gradient(90deg,#ff7b72 0%,#ff7b72 13%,transparent 13%);height:18px;border-radius:3px"></div></td><td>13%</td></tr>
+          <tr><td>Sonnet 4.5</td><td><div style="background:linear-gradient(90deg,#ffa657 0%,#ffa657 47%,transparent 47%);height:18px;border-radius:3px"></div></td><td>47%</td></tr>
+          <tr><td><b style="color:var(--accent-2)">DS-V4-Pro-Max</b></td><td><div style="background:linear-gradient(90deg,#7ee787 0%,#7ee787 67%,transparent 67%);height:18px;border-radius:3px"></div></td><td><b>67%</b></td></tr>
+          <tr><td>Opus 4.5</td><td><div style="background:linear-gradient(90deg,#4493f8 0%,#4493f8 70%,transparent 70%);height:18px;border-radius:3px"></div></td><td>70%</td></tr>
+          <tr><td>Opus 4.6 Thinking</td><td><div style="background:linear-gradient(90deg,#d2a8ff 0%,#d2a8ff 80%,transparent 80%);height:18px;border-radius:3px"></div></td><td>80%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p class="small">
+    DS-V4-Pro-Max <b>稳定超越 Sonnet 4.5</b>，<b>逼近 Opus 4.5</b>，与 Opus 4.6 Thinking 还有差距。
+    这就是为什么 <b>DeepSeek 内部开发者调查中，52% 的人说 V4-Pro 已经可以当默认编程模型</b>。
+  </p>
+
+  <h3>8.6 评测亮点与短板（诚实清单）</h3>
+  <div class="grid-2">
+    <div class="callout success" style="margin:0">
+      <strong>亮点</strong>
+      <ul style="margin:8px 0 0 18px;padding:0">
+        <li>Putnam-2025 数学证明：<b>120/120 满分</b></li>
+        <li>Codeforces Rating <b>3206</b>，相当于人类第 23 名</li>
+        <li>LiveCodeBench <b>93.5</b>，编程竞赛 SOTA</li>
+        <li>中文写作赢 Gemini-3.1-Pro（<b>62.7% vs 34.1%</b> 胜率）</li>
+        <li>128K 内长上下文几乎不掉点</li>
+        <li>Flash 小模型也能跑出接近 Pro 的成绩</li>
+      </ul>
+    </div>
+    <div class="callout danger" style="margin:0">
+      <strong>短板（论文自己承认）</strong>
+      <ul style="margin:8px 0 0 18px;padding:0">
+        <li>SWE-Pro / Terminal-Bench 落后闭源前沿模型</li>
+        <li>MRCR 1M 与 Claude Opus 4.6 还有差距</li>
+        <li>最难中文写作落后 Claude Opus 4.5</li>
+        <li>SimpleQA 事实知识弱于 Gemini-3.1-Pro</li>
+        <li>论文原话："trailing state-of-the-art frontier models by 3-6 months"</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<!-- ========== 9. 整体回顾与展望 ========== -->
+<section id="summary">
+  <h2><span class="num">9</span> 整体回顾与展望 <span class="en">/ Summary</span></h2>
+  <p class="lead">
+    讲完八节，回头看 V4 的设计——它其实是<b>三条主线汇合</b>的产物。
+  </p>
+
+  <h3>9.1 三条主线归纳</h3>
+  <div class="grid-3">
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent)">注意力线</h4>
+      <div class="mono" style="font-size:13px;color:var(--text-muted);line-height:1.7">
+        MHA<br>↓ (KV 共享)<br>MLA<br>↓ (低秩压缩)<br>DSA<br>↓ (动态稀疏)<br><b style="color:var(--accent)">CSA / HCA</b>
+      </div>
+      <p class="small" style="margin-top:10px">最终结果：<b>KV cache 砍掉 99.7%</b>。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent-3)">优化器线</h4>
+      <div class="mono" style="font-size:13px;color:var(--text-muted);line-height:1.7">
+        SGD<br>↓ (+ 动量)<br>Adam<br>↓ (+ 解耦 wd)<br>AdamW<br>↓ (整矩阵视角)<br><b style="color:var(--accent-3)">Muon</b>
+      </div>
+      <p class="small" style="margin-top:10px">Newton-Schulz 正交化更新，<b>跳出逐参数视角</b>。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent-2)">训练稳定性线</h4>
+      <div class="mono" style="font-size:13px;color:var(--text-muted);line-height:1.7">
+        纯残差<br>↓<br>HC<br>↓<br>mHC<br>+ Anticipatory Routing<br>+ <b style="color:var(--accent-2)">SwiGLU Clamping</b>
+      </div>
+      <p class="small" style="margin-top:10px">不靠 trick，靠<b>多层稳健性约束</b>叠加。</p>
+    </div>
+  </div>
+
+  <h3>9.2 V4 的设计哲学：每个数字都是算出来的</h3>
+  <div class="card">
+    <ul>
+      <li><b>CSA 块大小 = 4</b>：4×16 = 64 个 head，刚好对齐一块 H800 SM。</li>
+      <li><b>HCA 块大小 = 128</b>：128 token 块对应一次 KV 加载的最佳粒度。</li>
+      <li><b>HCA 滑窗 = 128</b>：每个 query 看 128 个邻居，覆盖本地依赖且不超 cache line。</li>
+      <li><b>Lightning Indexer top-k = 1024</b>：稀疏率 ≈ 1% 时 attention 误差与 dense 持平。</li>
+      <li><b>Muon RMS = 0.18</b>：故意贴近 AdamW 的典型 RMS，<b>复用 lr 调度</b>。</li>
+      <li><b>MTP loss = 0.3 → 0.1</b>：训练中段全力学习多 token 预测，衰减期降权避免干扰精调。</li>
+    </ul>
+    <p class="small" style="color:var(--text-muted);margin-top:10px">
+      V4 几乎没有一个"凭感觉拍的"数字——每个常数都对应一个硬件约束、一个梯度方差边界，或一条经验回路。
+      这是<b>系统工程思维</b>在大模型设计里的胜利。
+    </p>
+  </div>
+
+  <h3>9.3 局限与未来方向（论文第 6 章）</h3>
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent-4)">已知局限</h4>
+      <ul>
+        <li>架构变得相对<b>复杂</b>——CSA/HCA + mHC + Muon + OPD，新人上手门槛升高</li>
+        <li>Anticipatory Routing 和 SwiGLU Clamping 的<b>底层原理仍待研究</b>——经验上有效，理论上还没说清</li>
+        <li>1M 上下文相比 Claude Opus 4.6 还有差距</li>
+        <li>事实知识、最难中文写作仍落后顶级闭源模型</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color:var(--accent-2)">未来方向</h4>
+      <ul>
+        <li>更优雅的<b>架构蒸馏</b>，把复杂结构简化回小模型</li>
+        <li>探索<b>更稀疏的 embedding 模块</b>（sparse embedding）</li>
+        <li>更<b>低延迟</b>的架构与系统技术</li>
+        <li><b>多模态</b>能力扩展（V4 仍是纯文本）</li>
+        <li>将 OPD 推广到更多 specialist 领域</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>9.4 一个哲学层面的洞察</h3>
+  <div class="callout success">
+    <strong>关于"压缩"的本质</strong>
+    V4 的所有压缩——KV cache 砍 99.7%、attention 稀疏到 1%、optimizer 把奇异值砸平——
+    归根到底在做<b>同一件事</b>：<br>
+    <b style="display:block;margin-top:8px;font-size:16px;color:var(--accent-2)">
+    "只沿着流形存路径，不存流形以外的空气。"
+    </b>
+    Transformer 的本质是把信息收敛到高维数据流形上。V4 是这件事的<b>工程注脚</b>——
+    它告诉我们：真正重要的不是参数有多少，而是<b>参数有没有用在流形的方向上</b>。
+  </div>
+
+  <h3>9.5 行业意义</h3>
+  <div class="grid-4">
+    <div class="stat-card">
+      <div class="stat-num" style="color:var(--accent-2)">MIT</div>
+      <div class="stat-label">License 开源</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" style="color:var(--accent)">1.6T</div>
+      <div class="stat-label">总参数 / 32B 激活</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" style="color:var(--accent-3)">$5.2M</div>
+      <div class="stat-label">估算训练成本</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" style="color:var(--accent-5)">$0.30</div>
+      <div class="stat-label">API / 百万 token</div>
+    </div>
+  </div>
+
+  <div class="callout warn" style="margin-top:18px">
+    <strong>结语</strong>
+    V4 不是"又一个开源大模型"。它是 <b>DeepSeek 在 MLA / DeepSeekMoE / GRPO / DSA 四年积累</b>的一次集大成。
+    每个组件都不是 V4 才有的发明——但<b>四件事第一次在同一个模型里同时跑通</b>。
+    更重要的是，它用 <b>1/20 的成本</b>做出了 <b>能进第一梯队</b>的开源旗舰，
+    并把 API 价格压到比同级别便宜<b>一个数量级</b>。
+    <br><br>
+    这是中国大模型工程能力的一份硬实力证明——
+    <b>不是更大、不是更贵，而是更聪明地用每一个 FLOP、每一字节 KV、每一次更新方向。</b>
+  </div>
+</section>
+
+
+<script>(function(){
+  // ============ 8.1 闭源对比：雷达 / 柱状切换 ============
+  const ctxEval = document.getElementById('evalChart');
+  if (!ctxEval || typeof Chart === 'undefined') return;
+
+  const labels = ['LiveCodeBench', 'Codeforces*', 'SWE-Verified', 'Terminal-Bench', 'MRCR 1M', 'HMMT 2026'];
+  // Codeforces Rating 归一化：3300 -> 100, 2700 -> ~82
+  const norm = r => Math.round(r / 33);
+
+  const datasets_radar = [
+    {
+      label: 'DS-V4-Pro',
+      data: [93.5, norm(3206), 80.6, 67.9, 83.5, 95.2],
+      backgroundColor: 'rgba(126,231,135,0.25)',
+      borderColor: 'rgba(126,231,135,1)',
+      pointBackgroundColor: 'rgba(126,231,135,1)',
+      borderWidth: 2
+    },
+    {
+      label: 'Claude Opus-4.6',
+      data: [88.8, 0, 80.8, 0, 92.9, 0],
+      backgroundColor: 'rgba(210,168,255,0.18)',
+      borderColor: 'rgba(210,168,255,1)',
+      pointBackgroundColor: 'rgba(210,168,255,1)',
+      borderWidth: 2
+    },
+    {
+      label: 'GPT-5.4',
+      data: [0, norm(3168), 0, 75.1, 0, 97.7],
+      backgroundColor: 'rgba(255,166,87,0.18)',
+      borderColor: 'rgba(255,166,87,1)',
+      pointBackgroundColor: 'rgba(255,166,87,1)',
+      borderWidth: 2
+    },
+    {
+      label: 'Gemini-3.1-Pro',
+      data: [91.7, norm(3052), 0, 0, 76.3, 0],
+      backgroundColor: 'rgba(68,147,248,0.18)',
+      borderColor: 'rgba(68,147,248,1)',
+      pointBackgroundColor: 'rgba(68,147,248,1)',
+      borderWidth: 2
+    }
+  ];
+
+  let chart = new Chart(ctxEval, {
+    type: 'radar',
+    data: { labels: labels, datasets: datasets_radar },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        r: {
+          beginAtZero: true,
+          suggestedMax: 100,
+          angleLines: { color: 'rgba(139,148,158,0.25)' },
+          grid: { color: 'rgba(139,148,158,0.2)' },
+          pointLabels: { color: '#e6edf3', font: { size: 12 } },
+          ticks: {
+            color: '#8b949e',
+            backdropColor: 'transparent',
+            stepSize: 20
+          }
+        }
+      },
+      plugins: {
+        legend: { labels: { color: '#e6edf3' } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => ctx.parsed.r === 0 ? `${ctx.dataset.label}: 未公布` : `${ctx.dataset.label}: ${ctx.parsed.r}`
+          }
+        }
+      }
+    }
+  });
+
+  document.querySelectorAll('.seg-btn[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.seg-btn[data-view]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const view = btn.dataset.view;
+      chart.destroy();
+      chart = new Chart(ctxEval, {
+        type: view === 'radar' ? 'radar' : 'bar',
+        data: { labels: labels, datasets: datasets_radar },
+        options: view === 'radar' ? {
+          responsive: true, maintainAspectRatio: false,
+          scales: { r: {
+            beginAtZero: true, suggestedMax: 100,
+            angleLines: { color: 'rgba(139,148,158,0.25)' },
+            grid: { color: 'rgba(139,148,158,0.2)' },
+            pointLabels: { color: '#e6edf3', font: { size: 12 } },
+            ticks: { color: '#8b949e', backdropColor: 'transparent', stepSize: 20 }
+          }},
+          plugins: { legend: { labels: { color: '#e6edf3' } } }
+        } : {
+          responsive: true, maintainAspectRatio: false,
+          scales: {
+            y: {
+              beginAtZero: true, max: 100,
+              ticks: { color: '#8b949e' },
+              grid: { color: 'rgba(139,148,158,0.15)' },
+              title: { display: true, text: '得分（归一化 0-100）', color: '#8b949e' }
+            },
+            x: { ticks: { color: '#8b949e' }, grid: { display: false } }
+          },
+          plugins: {
+            legend: { labels: { color: '#e6edf3' } },
+            tooltip: { callbacks: {
+              label: (ctx) => ctx.parsed.y === 0 ? `${ctx.dataset.label}: 未公布` : `${ctx.dataset.label}: ${ctx.parsed.y}`
+            }}
+          }
+        }
+      });
+    });
+  });
+
+  // ============ 8.3 MRCR 长上下文曲线 ============
+  const ctxMrcr = document.getElementById('mrcrChart');
+  if (!ctxMrcr) return;
+
+  new Chart(ctxMrcr, {
+    type: 'line',
+    data: {
+      labels: ['8K', '32K', '128K', '512K', '1024K'],
+      datasets: [
+        {
+          label: 'V4-Pro',
+          data: [0.90, 0.94, 0.92, 0.66, 0.59],
+          borderColor: 'rgba(126,231,135,1)',
+          backgroundColor: 'rgba(126,231,135,0.12)',
+          borderWidth: 3,
+          tension: 0.3,
+          fill: true,
+          pointRadius: 5,
+          pointBackgroundColor: 'rgba(126,231,135,1)'
+        },
+        {
+          label: 'V4-Flash',
+          data: [0.91, 0.87, 0.87, 0.60, 0.49],
+          borderColor: 'rgba(68,147,248,1)',
+          backgroundColor: 'rgba(68,147,248,0.10)',
+          borderWidth: 3,
+          tension: 0.3,
+          fill: true,
+          pointRadius: 5,
+          pointBackgroundColor: 'rgba(68,147,248,1)',
+          borderDash: [6, 4]
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 1.0,
+          ticks: { color: '#8b949e' },
+          grid: { color: 'rgba(139,148,158,0.15)' },
+          title: { display: true, text: 'MRCR 8-needle 得分', color: '#8b949e' }
+        },
+        x: {
+          ticks: { color: '#8b949e' },
+          grid: { color: 'rgba(139,148,158,0.08)' },
+          title: { display: true, text: '上下文长度', color: '#8b949e' }
+        }
+      },
+      plugins: {
+        legend: { labels: { color: '#e6edf3' } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}`
+          }
+        }
+      }
+    }
+  });
+})();</script>

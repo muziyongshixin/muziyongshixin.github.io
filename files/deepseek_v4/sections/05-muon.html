@@ -1,0 +1,361 @@
+<!-- ========== 5. Muon 优化器 ========== -->
+<section id="muon">
+  <h2><span class="num">5</span> Muon 优化器 <span class="en">/ 从 SGD 到几何更新</span></h2>
+  <p class="lead">
+    V4 的第三大创新不在模型结构里，而藏在<b>优化器</b>里。
+    1.6T 参数中 <span style="color:var(--accent-2)">99.9% 用 Muon</span>，只有 embedding、prediction head、RMSNorm、
+    mHC 静态偏置和门控因子（合计不到 20 亿参数）还留给 AdamW。
+    Muon 不是 AdamW 的微调版——它<b>换了一个数学范式</b>：把权重矩阵当成几何对象，对整矩阵做正交化更新。
+  </p>
+
+  <h3>5.1 优化器演化史：从逐参数 → 整矩阵</h3>
+  <p>过去 70 年优化器一直在做一件事：在原始梯度上加越来越聪明的"修饰"。Muon 是第一个跳出"逐参数思路"的主流优化器。</p>
+
+  <div class="timeline">
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">SGD</span><span class="tl-year">1951 · Robbins-Monro</span>
+        <span class="tl-tag">逐参数</span>
+      </div>
+      <div class="formula" style="margin:6px 0">W<sub>t</sub> = W<sub>t-1</sub> − η · g<sub>t</sub></div>
+      <div class="tl-problem">每个参数独立沿梯度走，遇到狭长峡谷就 zigzag。</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">Momentum</span><span class="tl-year">1964 · Polyak</span>
+        <span class="tl-tag">+ 历史方向</span>
+      </div>
+      <div class="formula" style="margin:6px 0">M<sub>t</sub> = μ·M<sub>t-1</sub> + g<sub>t</sub> &nbsp;&nbsp;&nbsp; W<sub>t</sub> = W<sub>t-1</sub> − η·M<sub>t</sub></div>
+      <div class="tl-problem">动量帮你冲过小坑，但学习率仍然全局共享。</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">Adam</span><span class="tl-year">2014 · Kingma & Ba</span>
+        <span class="tl-tag">+ 自适应 lr</span>
+      </div>
+      <div class="formula" style="margin:6px 0">W<sub>t</sub> = W<sub>t-1</sub> − η · m̂<sub>t</sub> / (√v̂<sub>t</sub> + ε)</div>
+      <div class="tl-problem">用梯度二阶矩给每个参数加个 lr 缩放——但仍然是<b>逐元素</b>的。</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">AdamW</span><span class="tl-year">2017 · Loshchilov & Hutter</span>
+        <span class="tl-tag">+ 解耦 wd</span>
+      </div>
+      <div class="tl-problem">把 weight decay 从梯度里拆出来独立施加，2018 年起成为 LLM 训练事实标准。</div>
+    </div>
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name" style="color:var(--accent-3)">Muon</span><span class="tl-year">2024 · Jordan et al.</span>
+        <span class="tl-tag" style="background:rgba(255,166,87,0.18);color:var(--accent-3)">整矩阵</span>
+      </div>
+      <div class="tl-problem" style="color:var(--accent-3)">
+        把权重矩阵 W ∈ ℝ<sup>n×m</sup> 视为几何对象，对动量缓冲做<b>近似正交化</b>——
+        让更新方向在所有奇异方向上<b>均匀分散</b>。
+      </div>
+    </div>
+  </div>
+
+  <h3>5.2 AdamW vs Muon：一个关键的视角差</h3>
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-4)">AdamW · 逐元素视角</h4>
+      <p class="small">把 W ∈ ℝ<sup>n×m</sup> 看成 n×m 个<b>独立标量</b>，每个标量算自己的一阶/二阶矩，独立决定步长方向。</p>
+      <div class="formula" style="margin:8px 0;font-size:14px">
+        ΔW<sub>i,j</sub> = − η · m<sub>i,j</sub> / (√v<sub>i,j</sub> + ε)
+      </div>
+      <p class="small" style="color:var(--text-muted)">
+        问题：梯度矩阵 G 的奇异值往往<b>差几个数量级</b>——
+        前几个大奇异方向把更新预算"吃光"，其它方向几乎不动。
+      </p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-2)">Muon · 整矩阵视角</h4>
+      <p class="small">把 W 视为<b>矩阵流形</b>上的一个点，更新 ΔW 是矩阵之间的"几何位移"。</p>
+      <div class="formula" style="margin:8px 0;font-size:14px">
+        ΔW = − η · <span style="color:var(--accent-3)">orthogonalize</span>(μM + G)
+      </div>
+      <p class="small" style="color:var(--text-muted)">
+        把动量矩阵 SVD 后的奇异值<b>全部砸成 1</b>——
+        所有方向的"推进力度"被强制均衡，相当于自适应给每个奇异方向独立 lr。
+      </p>
+    </div>
+  </div>
+
+  <h3>5.3 Muon 算法（V4 论文 Algorithm 1）</h3>
+<pre><code># 每个训练步、对每个逻辑独立权重矩阵 W：
+G_t  = ∇_W L(W_{t-1})                       # ① 当前梯度
+M_t  = μ · M_{t-1} + G_t                    # ② 动量（μ=0.95）
+O'_t = HybridNewtonSchulz(μ · M_t + G_t)    # ③ Nesterov + 混合 NS 正交化
+O_t  = O'_t · sqrt(max(n, m)) · γ           # ④ 重新缩放更新的 RMS（V4: γ 使 RMS≈0.18）
+W_t  = W_{t-1} · (1 − η·λ) − η · O_t        # ⑤ 解耦 weight decay + 应用更新
+</code></pre>
+
+  <p class="small">几个工程细节值得记：</p>
+  <ul>
+    <li>第 ③ 步用 <b>Nesterov trick</b>：把 (μM + G) 而非 M 喂给 NS 迭代，等效"看一步未来动量"。</li>
+    <li>第 ④ 步把更新 RMS 缩到 <code>0.18</code>，<b>故意贴近 AdamW 在 LLM 上的典型 RMS</b>——这样可以<b>复用 AdamW 的 lr 调度</b>，省下重新调参的成本。</li>
+    <li>第 ⑤ 步给 Muon 参数也加 weight decay（来自 Liu et al. 2025）——原版 Muon 没做这个。</li>
+    <li>V4 <b>不用 QK-Clip</b>：因为 attention 已经在 Q/K 上做了 RMSNorm，attention logits 不会爆。</li>
+  </ul>
+
+  <h3>5.4 核心数学：HybridNewtonSchulz 怎么把矩阵正交化？</h3>
+  <div class="card">
+    <p><b>目标</b>：给定动量矩阵 M = U Σ V<sup>T</sup>，把它<b>近似变成 U V<sup>T</sup></b>（也就是奇异值 Σ 全部归 1）。
+       这正是 M 的"极分解"中的正交因子。</p>
+
+    <p><b>为什么不直接 SVD？</b>SVD 复杂度 O(min(n,m)·n·m) 且数值不稳，跑在每个 GPU 的每个权重矩阵上完全不可承受。
+       <b>Newton-Schulz</b>（NS）迭代用纯矩阵乘法逼近，<b>BF16 也能跑、张量核能加速</b>。</p>
+
+    <p>初始归一化让 ‖M₀‖₂ ≤ 1（最大奇异值不超过 1）：</p>
+    <div class="formula">M<sub>0</sub> = M / ‖M‖<sub>F</sub></div>
+
+    <p>然后每次迭代用一个三次多项式 p(x) = a·x + b·x³ + c·x⁵ 作用在<b>每个奇异值</b>上：</p>
+    <div class="formula">M<sub>k+1</sub> = a · M<sub>k</sub> + b · (M<sub>k</sub> M<sub>k</sub><sup>T</sup>) M<sub>k</sub> + c · (M<sub>k</sub> M<sub>k</sub><sup>T</sup>)² M<sub>k</sub></div>
+
+    <p>系数 (a, b, c) 决定 p(x) 的形状——好的系数让 p(p(p(...(σ)))) 快速收敛到 1。
+       <b>V4 用 10 次迭代 + 两阶段系数</b>：</p>
+
+    <div class="grid-2" style="margin-top:14px">
+      <div class="card" style="margin:0;padding:14px">
+        <h4 class="mt-0" style="color:var(--accent-3)">前 8 步：激进收敛</h4>
+        <div class="mono" style="font-size:13px;color:var(--accent-3)">(a, b, c) = (3.4445, −4.7750, 2.0315)</div>
+        <p class="small" style="margin-top:8px">p(x) 在 [0,1] 上把小奇异值<b>大幅放大</b>，把大奇异值压回 1 附近。代价：在 σ≈1 处有过冲。</p>
+      </div>
+      <div class="card" style="margin:0;padding:14px">
+        <h4 class="mt-0" style="color:var(--accent-2)">后 2 步：精细稳定</h4>
+        <div class="mono" style="font-size:13px;color:var(--accent-2)">(a, b, c) = (2, −1.5, 0.5)</div>
+        <p class="small" style="margin-top:8px">p(x) 在 σ=1 是<b>不动点</b>且导数小，把残留误差精确抹平到 1。</p>
+      </div>
+    </div>
+  </div>
+
+  <h3>5.5 可视化：奇异值在 NS 迭代下的"压平"过程</h3>
+  <p class="small">下图展示一个 64×64 随机矩阵的奇异值分布——初始参差不齐，经过 10 次混合 Newton-Schulz 后全部收敛到 1 附近：</p>
+
+  <div class="chart-box">
+    <div class="slider-row">
+      <label>NS 迭代步</label>
+      <input type="range" id="nsStep" min="0" max="10" value="0" step="1">
+      <span class="val" id="nsStepV">0 / 10（初始）</span>
+    </div>
+    <div class="chart-canvas-wrap" style="height: 320px">
+      <canvas id="nsChart"></canvas>
+    </div>
+    <div class="legend" style="margin-top:10px">
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent-3)"></span>当前奇异值分布</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent-2)"></span>目标值 σ = 1</span>
+    </div>
+    <p class="small" style="margin-top:10px">
+      前 8 步（橙色系数）把奇异值快速拽到 1 附近但有过冲；后 2 步（绿色系数）精细收敛。
+      最大/最小奇异值之比从 <span class="mono" id="ratioBefore" style="color:var(--accent-4)">—</span>
+      压到 <span class="mono" id="ratioAfter" style="color:var(--accent-2)">—</span>。
+    </p>
+  </div>
+
+  <h3>5.6 几何直觉：为什么"奇异值砸平"能让训练更稳？</h3>
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-4)">AdamW 的隐患</h4>
+      <p class="small">梯度矩阵 G 的<b>奇异值谱通常重尾</b>——头部几个方向的能量是尾部的 1000×。
+         逐元素自适应只能让"每个标量"步长合理，<b>无法让奇异方向均衡</b>。</p>
+      <p class="small" style="color:var(--text-muted)">结果：训练前期参数大幅旋转，后期"卡死"在前几个奇异方向，影响 loss landscape 探索。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-2)">Muon 的修正</h4>
+      <p class="small">正交化后的 O = U V<sup>T</sup> 在<b>所有奇异方向上模长相等</b>——
+         小奇异方向被"放大"以匹配大奇异方向，整个矩阵<b>各向同性</b>地更新。</p>
+      <p class="small" style="color:var(--text-muted)">
+        类比：AdamW 像一格格爬梯子；Muon 是<b>调整整面身体的姿态</b>同步迈步。
+      </p>
+    </div>
+  </div>
+
+  <h3>5.7 V4 的实际配置一览</h3>
+  <div class="card">
+    <table>
+      <thead><tr><th>项</th><th>V4 取值</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td>覆盖参数比例</td><td class="highlight">99.9%</td><td>除 embedding / head / RMSNorm / mHC 静态偏置 / 门控因子外，全部用 Muon</td></tr>
+        <tr><td>AdamW 兜底参数量</td><td>&lt; 2B</td><td>这些参数要么不是矩阵，要么形状特殊</td></tr>
+        <tr><td>NS 迭代数</td><td>10（8 + 2）</td><td>两阶段系数：激进收敛 → 精细稳定</td></tr>
+        <tr><td>动量系数 μ</td><td>0.95</td><td>使用 Nesterov 变体：NS 输入用 (μM + G)</td></tr>
+        <tr><td>更新 RMS 缩放</td><td>≈ 0.18</td><td>故意贴近 AdamW 的典型 RMS，<b>复用 AdamW 的 lr 调度</b></td></tr>
+        <tr><td>Weight decay</td><td>解耦施加</td><td>Liu et al. 2025 的改进，原版 Muon 没做</td></tr>
+        <tr><td>QK-Clip</td><td>不使用</td><td>Q/K 已有 RMSNorm，logits 不会爆</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>5.8 收益：V4 训练为什么能跑下来</h3>
+  <div class="callout success">
+    <strong>Muon 在 V4 的实际作用</strong>
+    1.6T 参数 × 33T token 的训练规模，AdamW 在中后期容易出现 loss spike + 长 plateau。
+    Muon 提供了<b>更稳的收敛速度</b>和<b>更小的方差</b>——配合 mHC 的稳定性约束，让 V4 的训练成本压到了约
+    <b>520 万美元</b>（与 V3 同等量级，但模型规模大 2 倍以上）。
+  </div>
+
+  <div class="callout warn">
+    <strong>一句话总结</strong>
+    Muon 的关键不是"更聪明的自适应 lr"，而是<b>用 Newton-Schulz 把动量正交化</b>——
+    让权重矩阵的每个奇异方向<b>均匀获得更新预算</b>。这是优化器 70 年来第一次跳出"逐参数视角"。
+  </div>
+</section>
+
+<script>(function(){
+  // ============ NS 奇异值压平演示 ============
+  const ctx = document.getElementById('nsChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+
+  // 模拟一组 64 个奇异值：重尾分布，从 5.0 衰减到 0.05
+  const N = 64;
+  const sigma0 = [];
+  for (let i = 0; i < N; i++) {
+    // 几何衰减 + 一点噪声
+    const base = 5.0 * Math.pow(0.92, i);
+    sigma0.push(Math.max(0.03, base));
+  }
+
+  // Frobenius 归一化
+  function fnorm(arr) {
+    let s = 0;
+    for (const x of arr) s += x * x;
+    return Math.sqrt(s);
+  }
+
+  // 模拟 NS 一次迭代：对每个奇异值 σ，套用 p(σ) = a·σ + b·σ³ + c·σ⁵
+  // （奇异值视角下，NS 矩阵迭代等价于在每个奇异值上独立作用三次/五次多项式）
+  function nsStep(sigmas, a, b, c) {
+    return sigmas.map(s => {
+      const s2 = s * s, s3 = s2 * s, s5 = s3 * s2;
+      return a * s + b * s3 + c * s5;
+    });
+  }
+
+  // 预计算 11 个阶段的奇异值（0 = 初始，1..10 = 每步之后）
+  const stages = [];
+  {
+    // 初始 Frobenius 归一化（让最大奇异值 ≈ 1/√rank 量级）
+    const f = fnorm(sigma0);
+    let s = sigma0.map(x => x / f);
+    // 再统一乘个系数，让最大 σ 大致接近 1 但不超过 1（与论文做法一致）
+    const maxS = Math.max(...s);
+    s = s.map(x => x / maxS * 0.98);
+    stages.push(s.slice());
+
+    const A1 = [3.4445, -4.7750, 2.0315];
+    const A2 = [2, -1.5, 0.5];
+    for (let k = 1; k <= 10; k++) {
+      const [a, b, c] = k <= 8 ? A1 : A2;
+      s = nsStep(s, a, b, c);
+      stages.push(s.slice());
+    }
+  }
+
+  const labels = Array.from({length: N}, (_, i) => (i + 1).toString());
+
+  const chart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: '奇异值 σ_i',
+          data: stages[0],
+          backgroundColor: 'rgba(255,166,87,0.7)',
+          borderColor: 'rgba(255,166,87,1)',
+          borderWidth: 1,
+          order: 2
+        },
+        {
+          label: '目标 σ = 1',
+          type: 'line',
+          data: Array(N).fill(1),
+          borderColor: 'rgba(126,231,135,0.9)',
+          borderWidth: 2,
+          borderDash: [6, 4],
+          pointRadius: 0,
+          fill: false,
+          order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 250 },
+      scales: {
+        y: {
+          beginAtZero: true,
+          suggestedMax: 1.4,
+          ticks: { color: '#8b949e' },
+          grid: { color: 'rgba(139,148,158,0.15)' },
+          title: { display: true, text: '奇异值大小', color: '#8b949e' }
+        },
+        x: {
+          ticks: {
+            color: '#8b949e',
+            maxRotation: 0,
+            autoSkip: true,
+            maxTicksLimit: 16
+          },
+          grid: { display: false },
+          title: { display: true, text: '奇异值索引 i (按大小排列)', color: '#8b949e' }
+        }
+      },
+      plugins: {
+        legend: { labels: { color: '#e6edf3' } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `σ_${ctx.label} = ${ctx.parsed.y.toFixed(4)}`
+          }
+        }
+      }
+    }
+  });
+
+  const slider = document.getElementById('nsStep');
+  const sliderV = document.getElementById('nsStepV');
+  const ratioBefore = document.getElementById('ratioBefore');
+  const ratioAfter = document.getElementById('ratioAfter');
+
+  function fmt(x) {
+    if (x >= 100) return x.toFixed(0);
+    if (x >= 10)  return x.toFixed(1);
+    return x.toFixed(2);
+  }
+  function ratio(arr) {
+    const mx = Math.max(...arr), mn = Math.min(...arr.filter(x => x > 1e-9));
+    return mx / mn;
+  }
+
+  // 初始/最终 ratio
+  ratioBefore.textContent = fmt(ratio(stages[0]));
+  ratioAfter.textContent  = fmt(ratio(stages[10]));
+
+  function update() {
+    const k = parseInt(slider.value, 10);
+    chart.data.datasets[0].data = stages[k];
+    // 按阶段调整颜色：前 8 步橙色，后 2 步绿色，最终成品淡绿
+    let color, bcolor;
+    if (k === 0) {
+      color = 'rgba(255,123,114,0.7)'; bcolor = 'rgba(255,123,114,1)';
+    } else if (k <= 8) {
+      color = 'rgba(255,166,87,0.7)';  bcolor = 'rgba(255,166,87,1)';
+    } else {
+      color = 'rgba(126,231,135,0.7)'; bcolor = 'rgba(126,231,135,1)';
+    }
+    chart.data.datasets[0].backgroundColor = color;
+    chart.data.datasets[0].borderColor = bcolor;
+    chart.update();
+
+    let tag;
+    if (k === 0) tag = '初始（重尾分布）';
+    else if (k <= 8) tag = `前 8 步 · 激进系数`;
+    else tag = `后 2 步 · 精细系数`;
+    sliderV.textContent = `${k} / 10（${tag}）`;
+  }
+  slider.addEventListener('input', update);
+  update();
+})();</script>
+</content>
+</invoke>

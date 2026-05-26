@@ -1,0 +1,95 @@
+<!-- ========== 1. 背景与动机 ========== -->
+<section id="bg">
+  <h2><span class="num">1</span> 背景与动机 <span class="en">/ Why V4?</span></h2>
+  <p class="lead">
+    要理解 V4，得先理解为什么注意力机制走到了今天这一步——以及为什么 KV cache 既是显存大户，
+    又是你 API 账单上的那一栏 "input - cache miss"。
+  </p>
+
+  <h3>1.1 推理范式的两条战线</h3>
+  <p>过去两年，大模型的能力提升来自两件事：</p>
+  <ul>
+    <li><b>Reasoning Models</b>（OpenAI o1, DeepSeek-R1）—— 用 test-time scaling 换推理深度，token 越生成越多。</li>
+    <li><b>Agentic Workflows</b> —— 长任务、多文档、跨会话，上下文越来越长。</li>
+  </ul>
+  <p>
+    两件事都顶着同一个天花板：标准 Attention 是 O(n²) 的。当 n 从 32K 涨到 1M，
+    注意力的算力消耗增长 1000×，KV cache 增长 32×。这个天花板压制了所有进一步的 scaling。
+  </p>
+
+  <div class="callout">
+    <strong>V4 的核心 motivation：</strong>不是再训一个更大的模型，而是<b>从架构层面把"百万 token 上下文"这件事做便宜</b>。
+    便宜到能进入主流应用、能进入 RL 长 rollout、能让普通用户用 0.30 美元/百万 token 的价格用上。
+  </div>
+
+  <h3>1.2 KV cache：技术问题，也是账单问题</h3>
+  <p>
+    每个 token 进入 Transformer，每一层都要存一份 K 和一份 V。V4-Pro 有 61 层，
+    50K 上下文 = 50000 × 61 = <b>305 万条 KV</b>。每条原始 KV 是 7168 维 BF16（28KB）——
+    不压缩的话 50K 上下文要 <b>81.5 GiB</b>。一张 A100 都装不下。
+  </p>
+  <p>这件事在你的 API 账单上长这样：</p>
+  <div class="scroll-x">
+  <table>
+    <thead><tr><th>模型</th><th class="num">输入·命中缓存</th><th class="num">输入·未命中</th><th class="num">输出</th></tr></thead>
+    <tbody>
+      <tr><td>DeepSeek V4-Pro</td><td class="num highlight">$0.145</td><td class="num">$1.74</td><td class="num">$3.48</td></tr>
+      <tr><td>GPT-5.5</td><td class="num">$0.5</td><td class="num">$5.00</td><td class="num">$30.00</td></tr>
+      <tr><td>Claude Opus 4.7</td><td class="num">$0.5</td><td class="num">$5.00</td><td class="num">$25.00</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">单位：美元 / 百万 token。"输入"为什么有两个价格？因为 KV cache 命中与否，决定了服务端要不要从头重算。</p>
+
+  <div class="callout warn">
+    <strong>实际案例：</strong>2026 年 3 月 Claude Code 翻车——在系统提示前面塞了"反滥用 token + 反蒸馏假工具"，
+    每轮都不一样，导致 prompt prefix 每轮都变、cache 每轮 miss，用户成本暴涨 10–20 倍。
+    KV cache 不只是技术问题，<b>它直接和钱挂钩</b>。
+  </div>
+
+  <h3>1.3 V4 给出的三大架构创新（论文 HuggingFace 主页官方原话）</h3>
+  <div class="grid-3">
+    <div class="card">
+      <h4 style="color: var(--accent)">① 混合注意力 CSA + HCA</h4>
+      <p>两种压缩注意力交替排列 + 滑动窗口兜底 + Lightning Indexer 选 top-k。
+         注意力 FLOPs 砍到 V3.2 的 <b>27%</b>，KV cache 砍到 <b>10%</b>。</p>
+    </div>
+    <div class="card">
+      <h4 style="color: var(--accent-3)">② mHC 流形约束超连接</h4>
+      <p>替代普通残差连接，把残差映射约束到双随机矩阵流形上，
+         让 <b>1.6T 模型训练 32T+ token 不崩</b>。</p>
+    </div>
+    <div class="card">
+      <h4 style="color: var(--accent-5)">③ Muon 优化器</h4>
+      <p>把权重矩阵当几何对象做正交化更新，比 AdamW 收敛更快、训练更稳。
+         <b>99.9% 参数用 Muon</b>，只有 embedding/RMSNorm 还用 AdamW。</p>
+    </div>
+  </div>
+  <p class="small" style="margin-top: 14px;">
+    再加上工程层的 Fine-Grained EP（MegaMoE）、FP4 QAT、Anticipatory Routing、Hash Routing、SwiGLU Clamping、
+    异构 KV cache 管理、On-Disk KV Cache 等一堆"基建创新"，构成了 V4 的完整技术栈。
+  </p>
+
+  <h3>1.4 全家桶：Pro 和 Flash 不是缩放关系</h3>
+  <div class="scroll-x">
+  <table>
+    <thead>
+      <tr><th>模型</th><th class="num">总参数</th><th class="num">激活参数</th><th class="num">层数</th>
+          <th class="num">hidden</th><th class="num">路由专家</th><th class="num">激活专家</th>
+          <th class="num">权重大小</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><b>V4-Pro</b></td><td class="num">1.6T</td><td class="num">49B</td><td class="num">61</td>
+          <td class="num">7168</td><td class="num">384</td><td class="num">6</td>
+          <td class="num">865 GB</td></tr>
+      <tr><td><b>V4-Flash</b></td><td class="num">284B</td><td class="num">13B</td><td class="num">43</td>
+          <td class="num">4096</td><td class="num">256</td><td class="num">6</td>
+          <td class="num">160 GB</td></tr>
+      <tr><td><span class="small">V3（参考）</span></td><td class="num">671B</td><td class="num">37B</td><td class="num">61</td>
+          <td class="num">7168</td><td class="num">256</td><td class="num">8</td>
+          <td class="num">—</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">两款都用 FP4（专家）+ FP8（其他）混合精度发布。Flash 不是 Pro 的缩小版，是为低成本推理专门设计的独立架构。</p>
+</section>

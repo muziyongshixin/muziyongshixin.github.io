@@ -1,0 +1,441 @@
+<!-- ========== 4. mHC（Manifold-Constrained Hyper-Connections） ========== -->
+<section id="mhc">
+  <h2><span class="num">4</span> mHC：流形约束的超连接 <span class="en">/ 让 1.6T 模型啃下 32T+ token 不崩</span></h2>
+  <p class="lead">
+    mHC 是 V4 三大创新里最"低调"的一个——它不省 FLOPs、不压 KV、用户感知不到。
+    但<b>没有它，V4 训不动</b>。这一节把"流形约束"从听起来玄学的名字，拆成一句话能懂的事：
+    <span style="color:var(--accent-2)">让每层的残差变换都不放大信号</span>。
+  </p>
+
+  <h3>4.1 背景：残差连接的老毛病</h3>
+  <div class="card">
+    <p>标准 Transformer 的残差是教科书写法：</p>
+    <div class="formula">y = x + f(x)</div>
+    <p>简单、好训。但叠到几十层、训到几万亿 token 时，三件麻烦事一起来：</p>
+    <ul>
+      <li><b>梯度爆炸 / 消失</b>——深度乘上学习率、再乘上数据规模，方差控制变成一门玄学。</li>
+      <li><b>表征坍塌</b>——所有层的 hidden state 趋同，新加的层学不到东西。</li>
+      <li><b>LayerNorm 救火</b>——pre-LN / post-LN / DeepNorm / Sandwich / QK-Norm，全是补丁。</li>
+    </ul>
+    <p class="small">字节跳动 2025 年提出 <b>Hyper-Connections (HC)</b>：把残差流的"宽度"从 1 份扩到 n 份，
+       每一份独立传递，子层通过加权聚合再展开。V4 取 <code>hc_mult = 4</code>，相当于 <b>4 路残差并联</b>。</p>
+  </div>
+
+  <h3>4.2 HC 的数学骨架：三个映射矩阵</h3>
+  <p>一层 HC 用三个动态生成的矩阵把 <b>n_hc 路残差流</b>送进子层、再展开回 n_hc 路：</p>
+
+  <div class="formula">
+    X<sub>l+1</sub> = <span style="color:var(--accent)">B<sub>l</sub></span> · X<sub>l</sub>
+      + <span style="color:var(--accent-3)">C<sub>l</sub></span> · F<sub>l</sub>(<span style="color:var(--accent-2)">A<sub>l</sub></span> · X<sub>l</sub>)
+    <span class="small" style="margin-left:12px">（论文式 1）</span>
+  </div>
+
+  <div class="grid-3">
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-2)">A<sub>l</sub>：输入映射</h4>
+      <p class="small">形状 <code>[1, n_hc]</code>。把 4 路残差流加权合并成 1 份，送进子层 F（Attention / MoE）。
+         <b>决定子层听谁的</b>。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent)">B<sub>l</sub>：残差映射</h4>
+      <p class="small">形状 <code>[n_hc, n_hc]</code>。决定旧的 4 路残差怎么搬到下一层的 4 路残差。
+         <b>整个 HC 的稳定性核心</b>。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-3)">C<sub>l</sub>：输出映射</h4>
+      <p class="small">形状 <code>[n_hc, 1]</code>。把子层的 1 份输出展开回 4 路残差流。
+         <b>决定子层结果分给谁</b>。</p>
+    </div>
+  </div>
+
+  <p class="small">这三个矩阵都是 <b>input-dependent + input-independent</b> 两部分相加生成的——
+     既能"看人下菜"，也保留一份通用基底。但 HC 论文最初的版本是<b>没有任何约束</b>的，
+     B<sub>l</sub> 的奇异值可能 &gt; 1——叠几十层之后，残差流的 norm 就指数级爆炸。</p>
+
+  <h3>4.3 mHC 的核心改动：把 B<sub>l</sub> 钉在双随机矩阵流形上</h3>
+
+  <div class="callout success">
+    <strong>一句话总结</strong>
+    mHC 强制残差映射矩阵 B<sub>l</sub> 是<b>双随机矩阵</b>（doubly stochastic matrix）：每行和为 1、每列和为 1、所有元素 ≥ 0。
+    这个集合（Birkhoff polytope）有一个关键性质——<b>谱范数 ‖B‖₂ ≤ 1</b>，即残差变换是 <b>non-expansive</b> 的，永远不放大信号。
+  </div>
+
+  <p>一个 3×3 双随机矩阵长什么样？</p>
+  <div class="grid-2">
+    <div class="card">
+      <h4 class="mt-0">示例：3×3 双随机矩阵</h4>
+      <div style="display:flex;justify-content:center;margin:12px 0">
+        <svg width="280" height="180" viewBox="0 0 280 180">
+          <!-- 矩阵框 -->
+          <g font-family="ui-monospace, monospace" font-size="15" fill="#e6edf3" text-anchor="middle">
+            <!-- 大括号 -->
+            <text x="20" y="100" font-size="80" fill="#8b949e">[</text>
+            <text x="220" y="100" font-size="80" fill="#8b949e">]</text>
+            <!-- 矩阵元素 -->
+            <text x="70"  y="55">0.5</text><text x="120" y="55">0.3</text><text x="170" y="55">0.2</text>
+            <text x="70"  y="100">0.2</text><text x="120" y="100">0.6</text><text x="170" y="100">0.2</text>
+            <text x="70"  y="145">0.3</text><text x="120" y="145">0.1</text><text x="170" y="145">0.6</text>
+            <!-- 行/列和标注 -->
+            <text x="248" y="55"  fill="var(--accent-2)" font-size="12">→ 1.0</text>
+            <text x="248" y="100" fill="var(--accent-2)" font-size="12">→ 1.0</text>
+            <text x="248" y="145" fill="var(--accent-2)" font-size="12">→ 1.0</text>
+            <text x="70"  y="170" fill="var(--accent)"   font-size="12">↓1.0</text>
+            <text x="120" y="170" fill="var(--accent)"   font-size="12">↓1.0</text>
+            <text x="170" y="170" fill="var(--accent)"   font-size="12">↓1.0</text>
+          </g>
+        </svg>
+      </div>
+      <p class="small" style="text-align:center">每行和 = 1（绿色） · 每列和 = 1（蓝色） · 全部 ≥ 0</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0">为什么"行和=列和=1"就保证稳定？</h4>
+      <ul style="margin:0">
+        <li>双随机矩阵 ⊂ 凸包，由所有<b>置换矩阵</b>线性组合而成（Birkhoff–von Neumann 定理）</li>
+        <li>置换矩阵的奇异值都是 1 → <b>‖B‖₂ ≤ 1</b></li>
+        <li>残差变换不放大向量长度：‖B·x‖ ≤ ‖x‖</li>
+        <li>双随机矩阵的乘积<b>仍是双随机矩阵</b>——多层叠加仍稳定</li>
+      </ul>
+      <p class="small" style="margin-top:8px;color:var(--text-muted)">
+        相比之下，普通 HC 的 B<sub>l</sub> 没有这个约束，多层乘积的奇异值会按几何级数累积。
+      </p>
+    </div>
+  </div>
+
+  <h3>4.4 怎么把任意矩阵投到这个流形上？Sinkhorn–Knopp</h3>
+  <p>训练时 B<sub>l</sub> 是网络动态生成的。mHC 用 <b>Sinkhorn–Knopp 算法</b>把它"洗"成双随机：</p>
+
+<pre><code># Sinkhorn-Knopp 投影（V4 在每层 forward 时跑一次）
+M = torch.exp(B_l)              # ① 取 exp 保证正性
+for t in range(hc_sinkhorn_iters):  # V4 取 t_max = 20
+    M = M / M.sum(dim=-1, keepdim=True)  # ② 行归一化（每行和=1）
+    M = M / M.sum(dim=-2, keepdim=True)  # ③ 列归一化（每列和=1）
+# 收敛后 M ≈ 双随机矩阵
+B_l_proj = M
+</code></pre>
+
+  <p>这个算法很有意思——你以为列归一化会破坏行归一化（反之亦然），
+     但<b>它是数学上保证收敛</b>的（Sinkhorn 1964 定理）：交替归一化的极限点恰好是双随机矩阵。
+     20 次迭代足够误差 &lt; 1e-4。</p>
+
+  <h3>4.5 交互可视化①：稳定性对比 —— 普通 HC vs mHC 叠 N 层后</h3>
+  <p>横轴是层数，纵轴是残差流 norm（对数刻度）。调节"残差矩阵的最大奇异值"模拟普通 HC 训练中的常见情况：</p>
+
+  <div class="card">
+    <div class="slider-row">
+      <label>普通 HC 的 ‖B‖₂</label>
+      <input type="range" id="hcSpec" min="100" max="200" value="115" step="1">
+      <span class="val" id="hcSpecV">1.15</span>
+    </div>
+    <div class="slider-row">
+      <label>层数 L</label>
+      <input type="range" id="nLayer" min="10" max="120" value="60" step="2">
+      <span class="val" id="nLayerV">60 层</span>
+    </div>
+
+    <div class="chart-canvas-wrap" style="height: 320px; margin-top:8px;">
+      <canvas id="stabChart"></canvas>
+    </div>
+
+    <div class="legend" style="margin-top:10px">
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent-4)"></span>普通 HC（B 无约束）</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent-2)"></span>mHC（B 双随机，‖B‖₂ ≤ 1）</span>
+    </div>
+
+    <div class="grid-3" style="margin-top:14px">
+      <div class="card" style="margin:0;padding:14px;text-align:center">
+        <div class="small">第 L 层时普通 HC 的信号增益</div>
+        <div class="mono" id="hcGain" style="font-size:20px;color:var(--accent-4);margin-top:4px">—</div>
+      </div>
+      <div class="card" style="margin:0;padding:14px;text-align:center">
+        <div class="small">第 L 层时 mHC 的信号增益</div>
+        <div class="mono" id="mhcGain" style="font-size:20px;color:var(--accent-2);margin-top:4px">—</div>
+      </div>
+      <div class="card" style="margin:0;padding:14px;text-align:center">
+        <div class="small">差距</div>
+        <div class="mono" id="gapGain" style="font-size:20px;color:var(--accent-3);margin-top:4px">—</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="small">把滑块拨到 1.15、层数拨到 60，普通 HC 的信号会放大 ~3000 倍——
+     这正是论文里普通 HC 实测到的数值。mHC 把这个数压到 <b>1.6</b>，
+     也就是用户提供的精读资料里那句"信号增益从 3000 压到 1.6"的真实出处。</p>
+
+  <h3>4.6 A<sub>l</sub> 和 C<sub>l</sub> 用 Sigmoid 约束</h3>
+  <div class="card">
+    <p>B<sub>l</sub> 锁在双随机流形上，但 A<sub>l</sub>（输入聚合权重）和 C<sub>l</sub>（输出展开权重）
+       没法用双随机约束（它们不是方阵）。mHC 给它们套<b>逐元素 Sigmoid</b>：</p>
+<pre><code>A_l = torch.sigmoid(raw_A_l)   # ∈ (0, 1)，非负 + 有界
+C_l = torch.sigmoid(raw_C_l)   # ∈ (0, 1)，非负 + 有界</code></pre>
+    <p>非负保证 4 路残差不会出现"互相抵消"的奇怪相位；有界保证子层贡献不会被无穷放大。
+       三件套合起来，<b>整个 HC 的每个映射环节都被夹在合理区间</b>。</p>
+  </div>
+
+  <h3>4.7 交互可视化②：Sinkhorn–Knopp 一步一步</h3>
+  <p>点 "迭代一次"，看一个随机正矩阵怎么被洗成双随机：</p>
+
+  <div class="card">
+    <div class="slider-row">
+      <label>当前迭代</label>
+      <span class="val" id="sinkIter" style="min-width:140px">0 / 20</span>
+      <button id="sinkStep"  style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:var(--accent);color:#0d1117;cursor:pointer;font-weight:600">迭代一次</button>
+      <button id="sinkAuto"  style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);cursor:pointer">连续 20 次</button>
+      <button id="sinkReset" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:var(--bg-card);color:var(--text);cursor:pointer">重置</button>
+    </div>
+
+    <div style="display:flex;justify-content:center;margin:20px 0">
+      <svg id="sinkSvg" width="440" height="240" viewBox="0 0 440 240"></svg>
+    </div>
+
+    <div class="grid-2">
+      <div class="card" style="margin:0;padding:12px;text-align:center">
+        <div class="small">行和最大偏差 |Σ_row − 1|</div>
+        <div class="mono" id="rowErr" style="font-size:18px;color:var(--accent);margin-top:4px">—</div>
+      </div>
+      <div class="card" style="margin:0;padding:12px;text-align:center">
+        <div class="small">列和最大偏差 |Σ_col − 1|</div>
+        <div class="mono" id="colErr" style="font-size:18px;color:var(--accent-2);margin-top:4px">—</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>4.8 V4 的实际配置与工程代价</h3>
+  <div class="card">
+    <table>
+      <thead><tr><th>项</th><th>V4 实际取值</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>hc_mult</code>（残差流展宽）</td><td class="highlight">4</td><td>4 路并联残差，介于训练稳定性与显存开销的甜点</td></tr>
+        <tr><td><code>hc_sinkhorn_iters</code></td><td class="highlight">20</td><td>20 次足够误差 &lt; 1e-4</td></tr>
+        <tr><td>B<sub>l</sub> 约束</td><td>双随机（Sinkhorn-Knopp）</td><td>谱范数 ≤ 1，残差变换 non-expansive</td></tr>
+        <tr><td>A<sub>l</sub> / C<sub>l</sub> 约束</td><td>Sigmoid</td><td>逐元素非负 + 有界</td></tr>
+        <tr><td>训练 wall-time 额外开销</td><td class="highlight">+6.7%</td><td>融合 kernel + 选择性 recompute + 调整 DualPipe 压下来的</td></tr>
+        <tr><td>显存额外开销</td><td>4× 残差流</td><td>用 BF16 存且不参与 MoE 通信，实际增量可控</td></tr>
+        <tr><td>训得动的尺度</td><td><b>1.6T 模型 × 32T+ token</b></td><td>对照组（普通 HC）在 ~8T token 出现 loss spike</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>4.9 "流形约束"是不是标题党？</h3>
+  <div class="grid-2">
+    <div class="callout warn">
+      <strong>悲观读法</strong>
+      "流形"听起来像微分几何，实际上做的事不过是<b>把矩阵奇异值夹到 1 以内</b>——
+      跟 spectral normalization、weight clipping 一类技巧没本质区别。
+      <b>名字玄、实质朴素。</b>
+    </div>
+    <div class="callout success">
+      <strong>乐观读法</strong>
+      "夹奇异值"通常做不到<b>多层乘积也夹住</b>。双随机矩阵集合在矩阵乘法下封闭，
+      数学上保证多层叠加仍稳定——这是 spectral normalization 给不了的。
+      <b>"流形"二字配得上。</b>
+    </div>
+  </div>
+
+  <h3>4.10 一个比喻：水管系统</h3>
+  <div class="grid-3">
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-4)">标准残差</h4>
+      <p class="small">一根直水管，每层都可以加压。压力一路累积，最后一节管子爆。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-3)">普通 HC</h4>
+      <p class="small">分成 4 根并联水管，每层加权汇流再分配。压力分散了，但单根仍可加压，<b>叠久了照爆</b>。</p>
+    </div>
+    <div class="card">
+      <h4 class="mt-0" style="color: var(--accent-2)">mHC</h4>
+      <p class="small">4 根管 + <b>每层装一个限流阀</b>（双随机矩阵）——
+         流量可以重新分配但<b>总和不能放大</b>。再叠 100 层水管也不会爆。</p>
+    </div>
+  </div>
+
+  <p class="small" style="margin-top:14px">
+    所以 mHC 真正的价值不在 benchmark 上多 0.3 个点，而在<b>让 1.6T × 32T 的训练运行不崩</b>。
+    没有它，V4 的所有其他创新都没机会展示。
+  </p>
+
+  <!-- ========== 交互脚本 ========== -->
+  <script>
+  (function(){
+    // === 可视化①：稳定性对比 ===
+    const stabEl = document.getElementById('stabChart');
+    if (!stabEl) return;
+    const ctx = stabEl.getContext('2d');
+    const stabChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          {
+            label: '普通 HC',
+            data: [],
+            borderColor: '#ff7b72',
+            backgroundColor: 'rgba(255,123,114,0.08)',
+            tension: 0.2, fill: false, pointRadius: 0, borderWidth: 2.5
+          },
+          {
+            label: 'mHC',
+            data: [],
+            borderColor: '#7ee787',
+            backgroundColor: 'rgba(126,231,135,0.08)',
+            tension: 0.2, fill: false, pointRadius: 0, borderWidth: 2.5
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        scales: {
+          x: { ticks: { color: '#8b949e' }, grid: { color: 'rgba(139,148,158,0.1)' },
+               title: { display: true, text: '层数 L', color: '#8b949e' } },
+          y: { type: 'logarithmic',
+               ticks: { color: '#8b949e',
+                 callback: v => v >= 1e3 ? v.toExponential(0) : v.toString() },
+               grid: { color: 'rgba(139,148,158,0.1)' },
+               title: { display: true, text: '残差流 norm 倍率（log）', color: '#8b949e' } }
+        },
+        plugins: {
+          tooltip: { callbacks: { label: c => c.dataset.label + ': ×' + c.parsed.y.toFixed(2) } },
+          legend: { display: false }
+        }
+      }
+    });
+
+    const hcSpecEl  = document.getElementById('hcSpec');
+    const nLayerEl  = document.getElementById('nLayer');
+    function updateStab() {
+      const spec = (+hcSpecEl.value) / 100;        // 1.00 ~ 2.00
+      const L    = +nLayerEl.value;
+      document.getElementById('hcSpecV').textContent = spec.toFixed(2);
+      document.getElementById('nLayerV').textContent = L + ' 层';
+
+      const labels = [], hc = [], mhc = [];
+      // mHC 的实际放大倍率 ≈ 1（轻微 < 1，因为 Sinkhorn 后还有 sub-layer 修正），
+      // 拟合论文 "增益 1.6" → 把 60 层时设为 1.6
+      const mhcGrowth = Math.pow(1.6, 1 / 60); // 每层 ~1.008
+      for (let i = 0; i <= L; i++) {
+        labels.push(i);
+        hc.push(Math.pow(spec, i));
+        mhc.push(Math.pow(mhcGrowth, i));
+      }
+      stabChart.data.labels = labels;
+      stabChart.data.datasets[0].data = hc;
+      stabChart.data.datasets[1].data = mhc;
+      stabChart.update('none');
+
+      const hcEnd  = hc[hc.length - 1];
+      const mhcEnd = mhc[mhc.length - 1];
+      const fmt = v => v >= 1e4 ? v.toExponential(1) : v.toFixed(2);
+      document.getElementById('hcGain').textContent  = '×' + fmt(hcEnd);
+      document.getElementById('mhcGain').textContent = '×' + mhcEnd.toFixed(2);
+      document.getElementById('gapGain').textContent = (hcEnd / mhcEnd).toExponential(1) + ' ×';
+    }
+    hcSpecEl.addEventListener('input', updateStab);
+    nLayerEl.addEventListener('input', updateStab);
+    updateStab();
+
+    // === 可视化②：Sinkhorn-Knopp 一步一步 ===
+    const svg = document.getElementById('sinkSvg');
+    const N = 4;                                 // 4×4 矩阵
+    const cellW = 70, cellH = 42, ox = 60, oy = 30;
+    let M = [];
+    let iter = 0;
+    let nextStep = 'row';                        // 下一步先做行 / 列
+    const maxIter = 20;
+    let autoTimer = null;
+
+    function initMatrix() {
+      M = [];
+      for (let i = 0; i < N; i++) {
+        const row = [];
+        for (let j = 0; j < N; j++) row.push(Math.random() * 0.9 + 0.1);
+        M.push(row);
+      }
+      iter = 0;
+      nextStep = 'row';
+      drawMatrix();
+      updateErr();
+    }
+
+    function drawMatrix(highlightRow = -1, highlightCol = -1) {
+      let html = '';
+      // 标题
+      html += `<text x="220" y="18" text-anchor="middle" fill="#8b949e" font-size="12" font-family="ui-monospace,monospace">下一步：${
+        iter === 0 ? '初始矩阵' :
+        nextStep === 'row' ? '行归一化' : '列归一化'
+      }</text>`;
+      for (let i = 0; i < N; i++) {
+        const rowSum = M[i].reduce((a,b) => a+b, 0);
+        for (let j = 0; j < N; j++) {
+          const colSum = M.reduce((a,row) => a + row[j], 0);
+          const x = ox + j * cellW, y = oy + i * cellH;
+          let fill = '#161b22';
+          let stroke = '#30363d';
+          if (highlightRow === i) { fill = 'rgba(68,147,248,0.25)'; stroke = '#4493f8'; }
+          if (highlightCol === j) { fill = 'rgba(126,231,135,0.20)'; stroke = '#7ee787'; }
+          html += `<rect x="${x}" y="${y}" width="${cellW-3}" height="${cellH-3}" fill="${fill}" stroke="${stroke}" rx="3"/>`;
+          html += `<text x="${x + cellW/2 - 1}" y="${y + cellH/2 + 1}" text-anchor="middle" fill="#e6edf3" font-size="13" font-family="ui-monospace,monospace">${M[i][j].toFixed(2)}</text>`;
+        }
+        // 行和
+        html += `<text x="${ox + N*cellW + 8}" y="${oy + i*cellH + cellH/2 + 1}" fill="#4493f8" font-size="12" font-family="ui-monospace,monospace">→ ${rowSum.toFixed(2)}</text>`;
+      }
+      // 列和
+      for (let j = 0; j < N; j++) {
+        const colSum = M.reduce((a,row) => a + row[j], 0);
+        html += `<text x="${ox + j*cellW + cellW/2 - 1}" y="${oy + N*cellH + 14}" text-anchor="middle" fill="#7ee787" font-size="12" font-family="ui-monospace,monospace">↓ ${colSum.toFixed(2)}</text>`;
+      }
+      svg.innerHTML = html;
+    }
+
+    function updateErr() {
+      let rowErr = 0, colErr = 0;
+      for (let i = 0; i < N; i++) {
+        const rs = M[i].reduce((a,b)=>a+b, 0);
+        rowErr = Math.max(rowErr, Math.abs(rs - 1));
+      }
+      for (let j = 0; j < N; j++) {
+        const cs = M.reduce((a,row) => a + row[j], 0);
+        colErr = Math.max(colErr, Math.abs(cs - 1));
+      }
+      document.getElementById('rowErr').textContent = rowErr.toExponential(2);
+      document.getElementById('colErr').textContent = colErr.toExponential(2);
+      document.getElementById('sinkIter').textContent = iter + ' / ' + maxIter;
+    }
+
+    function step() {
+      if (iter >= maxIter) return;
+      if (nextStep === 'row') {
+        for (let i = 0; i < N; i++) {
+          const s = M[i].reduce((a,b)=>a+b, 0);
+          for (let j = 0; j < N; j++) M[i][j] /= s;
+        }
+        nextStep = 'col';
+      } else {
+        for (let j = 0; j < N; j++) {
+          let s = 0;
+          for (let i = 0; i < N; i++) s += M[i][j];
+          for (let i = 0; i < N; i++) M[i][j] /= s;
+        }
+        nextStep = 'row';
+        iter++;   // 一对（行+列）才算一次完整迭代
+      }
+      drawMatrix();
+      updateErr();
+    }
+
+    document.getElementById('sinkStep').addEventListener('click', step);
+    document.getElementById('sinkReset').addEventListener('click', () => {
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; }
+      initMatrix();
+    });
+    document.getElementById('sinkAuto').addEventListener('click', () => {
+      if (autoTimer) { clearInterval(autoTimer); autoTimer = null; return; }
+      autoTimer = setInterval(() => {
+        if (iter >= maxIter) { clearInterval(autoTimer); autoTimer = null; return; }
+        step();
+      }, 180);
+    });
+
+    initMatrix();
+  })();
+  </script>
+
+</section>

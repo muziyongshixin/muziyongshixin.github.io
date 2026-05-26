@@ -1,0 +1,684 @@
+<!-- ========== 2. 注意力演化时间线 ========== -->
+<section id="evo">
+  <h2><span class="num">2</span> 注意力演化史 <span class="en">/ 8 年间砍 KV 的 7 刀</span></h2>
+  <p class="lead">
+    V4 的 CSA/HCA 不是横空出世。注意力机制过去八年，每一代都在回答上一代留下的问题——
+    每一刀都砍向同一个目标：<b>KV cache</b>。
+  </p>
+
+  <h3>2.1 一个被 99% 教程模糊掉的关键差别：训练 vs 推理</h3>
+  <p>
+    教科书里画的注意力图，永远是一个 N×N 的方阵——每个 Q 和每个 K 互相点积。
+    但<b>这只对训练阶段（和推理 prefill 阶段）成立</b>。推理 decode 时根本不长这样。
+  </p>
+  <div class="grid-2">
+    <div class="card">
+      <h4 style="color: var(--accent)">训练 / Prefill</h4>
+<pre style="font-size:12px"><code>        K_1  K_2  ...  K_N
+Q_1     ✓    ✓         ✓
+Q_2     ✓    ✓         ✓
+...
+Q_N     ✓    ✓         ✓
+
+形状: N × N
+所有 Q 全部参与</code></pre>
+    </div>
+    <div class="card">
+      <h4 style="color: var(--accent-2)">推理 Decode（生成第 N+1 个 token）</h4>
+<pre style="font-size:12px"><code>        K_1  K_2  ...  K_N
+Q_N     ✓    ✓         ✓   ← 只有这一行
+
+
+
+形状: 1 × N
+只有最末位 Q 在工作
+K_1..K_N 全部要存（KV cache）</code></pre>
+    </div>
+  </div>
+  <div class="callout success">
+    <strong>核心洞察：</strong>推理 decode 时 N 个 K/V 全要用，但只用 1 个 Q。所以——
+    <ul style="margin-top:8px">
+      <li>KV cache 是显存大户，<b>Q 从来不是</b>（用完就丢）</li>
+      <li>注意力的所有优化战场都在 KV 上：MLA 砍维度、MQA/GQA 砍头数、CSA/HCA 砍条数</li>
+      <li>稀疏注意力是"从 N 条 K/V 里选 top-k"，<b>不是"从 N 个 Q 里选"</b>——Q 只有 1 个，没得选</li>
+    </ul>
+  </div>
+
+  <h3>2.2 七代演化时间线（每代配一张 SVG 图示）</h3>
+
+  <style scoped>
+    .att-svg { background: #010409; border-radius: 8px; padding: 14px; margin: 10px 0; display: block; max-width: 100%; }
+    .att-svg text { font-family: "JetBrains Mono", monospace; fill: #e6edf3; font-size: 11px; }
+    .att-svg .lbl { fill: #8b949e; font-size: 10px; }
+    .att-svg .q { fill: #d2a8ff; }
+    .att-svg .k { fill: #4493f8; }
+    .att-svg .v { fill: #7ee787; }
+    .att-svg .kv { fill: #ffa657; }
+    .att-svg .latent { fill: #ff7b72; }
+    .att-svg .arrow { stroke: #6e7681; stroke-width: 1; fill: none; }
+    .att-svg .arrow-hl { stroke: #4493f8; stroke-width: 1.5; fill: none; }
+    .att-svg .compressed { fill: #6e7681; opacity: .35; }
+    .att-svg .selected { stroke: #4493f8; stroke-width: 2; fill: none; }
+    .att-svg .head-box { stroke: #30363d; stroke-width: 1; fill: none; }
+    .att-svg .anno { fill: #ffa657; font-size: 10px; }
+  </style>
+
+  <div class="timeline">
+
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">MHA — Multi-Head Attention</span>
+        <span class="tl-year">2017 · Vaswani et al.</span>
+        <span class="tl-tag">原版</span>
+      </div>
+      <p>每个 head 自己的 W_q / W_k / W_v，128 个 head 各存自己的 K/V。表达力强但 KV cache 巨大。</p>
+
+      <svg class="att-svg" viewBox="0 0 560 130">
+        <text x="10" y="14" class="lbl">MHA：每个 Q head 对应自己独立的 K/V head（图示 8 个 head，实际 128 个）</text>
+        <!-- Q heads top row -->
+        <g>
+          <text x="10" y="40" class="lbl">Q heads</text>
+          <g id="mha-q"></g>
+        </g>
+        <!-- K heads middle -->
+        <g>
+          <text x="10" y="78" class="lbl">K heads</text>
+          <g id="mha-k"></g>
+        </g>
+        <!-- V heads -->
+        <g>
+          <text x="10" y="116" class="lbl">V heads</text>
+          <g id="mha-v"></g>
+        </g>
+        <text x="495" y="40" class="anno">8 / 8</text>
+        <text x="495" y="78" class="anno">8 / 8 ✕</text>
+        <text x="495" y="116" class="anno">8 / 8 ✕</text>
+      </svg>
+      <p class="small" style="margin-top:6px">紫=Q 头，蓝=K 头，绿=V 头。三行一一对齐，每个 token 每层要存 8×2=16 个 head 向量（实际 256 个）。</p>
+      <script>(function(){
+        const mk = (parent, n, cls, y) => {
+          const ns = 'http://www.w3.org/2000/svg';
+          const w = 50, gap = 8, x0 = 80;
+          for (let i = 0; i < n; i++) {
+            const r = document.createElementNS(ns, 'rect');
+            r.setAttribute('x', x0 + i*(w+gap));
+            r.setAttribute('y', y);
+            r.setAttribute('width', w);
+            r.setAttribute('height', 16);
+            r.setAttribute('rx', 3);
+            r.setAttribute('class', cls);
+            parent.appendChild(r);
+          }
+        };
+        const qEl = document.getElementById('mha-q'),
+              kEl = document.getElementById('mha-k'),
+              vEl = document.getElementById('mha-v');
+        if (qEl && kEl && vEl) { mk(qEl, 8, 'q', 28); mk(kEl, 8, 'k', 66); mk(vEl, 8, 'v', 104); }
+      })();</script>
+      <div class="tl-problem">↓ 留下：存得太多</div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">MQA — Multi-Query Attention</span>
+        <span class="tl-year">2019 · Google</span>
+        <span class="tl-tag">激进</span>
+      </div>
+      <p>Q 还是多头，但 <b>K 和 V 全模型只保留一套</b>。128 个 head 共用同一份 K/V。</p>
+
+      <svg class="att-svg" viewBox="0 0 560 130">
+        <text x="10" y="14" class="lbl">MQA：8 个 Q 头共享同一份 K/V（全模型只 1 份）</text>
+        <text x="10" y="40" class="lbl">Q heads</text>
+        <g id="mqa-q"></g>
+        <!-- 连线汇聚到一个 K -->
+        <g id="mqa-lines"></g>
+        <text x="10" y="78" class="lbl">K (1)</text>
+        <rect x="240" y="66" width="80" height="16" rx="3" class="k"/>
+        <text x="10" y="116" class="lbl">V (1)</text>
+        <rect x="240" y="104" width="80" height="16" rx="3" class="v"/>
+        <text x="495" y="40" class="anno">8 / 8</text>
+        <text x="495" y="78" class="anno">1 / 8 ✓</text>
+        <text x="495" y="116" class="anno">1 / 8 ✓</text>
+      </svg>
+      <p class="small" style="margin-top:6px">KV cache 砍到 <b>1/128</b>——但表达力下降，几个基准明显掉点。</p>
+      <script>(function(){
+        const ns = 'http://www.w3.org/2000/svg';
+        const qEl = document.getElementById('mqa-q'),
+              lEl = document.getElementById('mqa-lines');
+        if (!qEl) return;
+        const w = 50, gap = 8, x0 = 80;
+        for (let i = 0; i < 8; i++) {
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + i*(w+gap)); r.setAttribute('y', 28);
+          r.setAttribute('width', w); r.setAttribute('height', 16);
+          r.setAttribute('rx', 3); r.setAttribute('class', 'q');
+          qEl.appendChild(r);
+          // 连线 → K(单)
+          const ln = document.createElementNS(ns, 'line');
+          ln.setAttribute('x1', x0 + i*(w+gap) + w/2);
+          ln.setAttribute('y1', 44);
+          ln.setAttribute('x2', 280);
+          ln.setAttribute('y2', 66);
+          ln.setAttribute('class', 'arrow');
+          lEl.appendChild(ln);
+        }
+      })();</script>
+      <div class="tl-problem">↓ 留下：表达力损失太大</div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">GQA — Grouped-Query Attention</span>
+        <span class="tl-year">2023 · Google</span>
+        <span class="tl-tag">折中</span>
+      </div>
+      <p>把 Q heads 分若干组，每组共享一套 K/V。LLaMA-3、Qwen、Gemma 这一代主流都在用。</p>
+
+      <svg class="att-svg" viewBox="0 0 560 130">
+        <text x="10" y="14" class="lbl">GQA：8 个 Q 头分 4 组，每组共享 1 份 K/V（图示 8 头 4 组，可调）</text>
+        <text x="10" y="40" class="lbl">Q heads</text>
+        <g id="gqa-q"></g>
+        <g id="gqa-lines"></g>
+        <text x="10" y="78" class="lbl">K (4)</text>
+        <g id="gqa-k"></g>
+        <text x="10" y="116" class="lbl">V (4)</text>
+        <g id="gqa-v"></g>
+        <text x="495" y="40" class="anno">8 / 8</text>
+        <text x="495" y="78" class="anno">4 / 8 ⚖</text>
+        <text x="495" y="116" class="anno">4 / 8 ⚖</text>
+      </svg>
+      <p class="small" style="margin-top:6px">在 MHA 和 MQA 之间给了一个旋钮：组数越少越省，越多越接近 MHA。</p>
+      <script>(function(){
+        const ns = 'http://www.w3.org/2000/svg';
+        const w = 50, gap = 8, x0 = 80;
+        const qEl = document.getElementById('gqa-q'),
+              kEl = document.getElementById('gqa-k'),
+              vEl = document.getElementById('gqa-v'),
+              lEl = document.getElementById('gqa-lines');
+        if (!qEl) return;
+        // 8 Q heads
+        for (let i = 0; i < 8; i++) {
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + i*(w+gap)); r.setAttribute('y', 28);
+          r.setAttribute('width', w); r.setAttribute('height', 16);
+          r.setAttribute('rx', 3); r.setAttribute('class', 'q');
+          qEl.appendChild(r);
+        }
+        // 4 K, 4 V (居中在每组中间位置)
+        for (let g = 0; g < 4; g++) {
+          const cx = x0 + (g*2)*(w+gap) + (w+gap)/2 + w/2;
+          // K
+          const rk = document.createElementNS(ns, 'rect');
+          rk.setAttribute('x', cx - w/2); rk.setAttribute('y', 66);
+          rk.setAttribute('width', w); rk.setAttribute('height', 16);
+          rk.setAttribute('rx', 3); rk.setAttribute('class', 'k');
+          kEl.appendChild(rk);
+          // V
+          const rv = document.createElementNS(ns, 'rect');
+          rv.setAttribute('x', cx - w/2); rv.setAttribute('y', 104);
+          rv.setAttribute('width', w); rv.setAttribute('height', 16);
+          rv.setAttribute('rx', 3); rv.setAttribute('class', 'v');
+          vEl.appendChild(rv);
+          // 组框（虚线包住 2 个 Q）
+          const box = document.createElementNS(ns, 'rect');
+          box.setAttribute('x', x0 + (g*2)*(w+gap) - 4);
+          box.setAttribute('y', 24);
+          box.setAttribute('width', (w+gap)*2 - gap + 8);
+          box.setAttribute('height', 24);
+          box.setAttribute('rx', 5);
+          box.setAttribute('class', 'head-box');
+          box.setAttribute('stroke-dasharray', '3,3');
+          qEl.appendChild(box);
+          // 连线
+          for (let i = 0; i < 2; i++) {
+            const qx = x0 + (g*2+i)*(w+gap) + w/2;
+            const ln = document.createElementNS(ns, 'line');
+            ln.setAttribute('x1', qx); ln.setAttribute('y1', 44);
+            ln.setAttribute('x2', cx); ln.setAttribute('y2', 66);
+            ln.setAttribute('class', 'arrow');
+            lEl.appendChild(ln);
+          }
+        }
+      })();</script>
+      <div class="tl-problem">↓ 留下：还是只能砍头数维度，不够</div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">MLA — Multi-head Latent Attention</span>
+        <span class="tl-year">2024 · DeepSeek V2</span>
+        <span class="tl-tag" style="background: rgba(126,231,135,0.15); color: var(--accent-2)">🔥 DeepSeek 原创</span>
+      </div>
+      <p>不砍头数。从另一个维度下刀：<b>砍每条 KV 的"维度"</b>。</p>
+      <p>把所有 head 的 K/V 压成一份 512 维的 latent，存的时候只存这个 latent。
+         <b>"还原 K"和"还原 V"的投影矩阵在训练时被吸收进 Q 投影和输出投影里</b>——推理时
+         latent 直接参与运算，从头到尾不需要还原成 K 和 V。</p>
+
+      <svg class="att-svg" viewBox="0 0 560 170">
+        <text x="10" y="14" class="lbl">MLA：128 个 Q 头 + 共享 1 份 512 维 latent（不是 K 也不是 V，是压缩态）</text>
+        <text x="10" y="40" class="lbl">Q heads</text>
+        <g id="mla-q"></g>
+        <g id="mla-lines"></g>
+
+        <text x="10" y="90" class="lbl">Latent</text>
+        <rect x="170" y="78" width="220" height="22" rx="4" class="latent"/>
+        <text x="180" y="93" style="fill:#0d1117;font-weight:700;font-size:11px">latent · 512 维</text>
+
+        <!-- 维度对比条 -->
+        <text x="10" y="135" class="lbl">维度</text>
+        <rect x="80" y="125" width="430" height="14" fill="#30363d" rx="3"/>
+        <rect x="80" y="125" width="30" height="14" fill="#ff7b72" rx="3"/>
+        <text x="115" y="136" style="font-size:10px">512 (MLA)</text>
+        <text x="380" y="118" style="font-size:10px" class="lbl">↑ MHA 标准 K+V 合计 = 14336 维</text>
+
+        <text x="495" y="40" class="anno">128</text>
+        <text x="495" y="90" class="anno">1 latent</text>
+      </svg>
+      <p class="small" style="margin-top:6px">128 个 Q 头都从这一份 latent "投影"出自己的 K/V——但<b>投影矩阵在训练时被合并进 Q' 和 W_o'</b>，推理时永远不显式还原。</p>
+      <script>(function(){
+        const ns = 'http://www.w3.org/2000/svg';
+        const qEl = document.getElementById('mla-q'),
+              lEl = document.getElementById('mla-lines');
+        if (!qEl) return;
+        // 16 个 Q heads 代替 128
+        const w = 22, gap = 4, x0 = 80;
+        for (let i = 0; i < 16; i++) {
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + i*(w+gap)); r.setAttribute('y', 28);
+          r.setAttribute('width', w); r.setAttribute('height', 16);
+          r.setAttribute('rx', 3); r.setAttribute('class', 'q');
+          qEl.appendChild(r);
+          // 连线 → latent
+          const ln = document.createElementNS(ns, 'line');
+          ln.setAttribute('x1', x0 + i*(w+gap) + w/2);
+          ln.setAttribute('y1', 44);
+          ln.setAttribute('x2', 280);
+          ln.setAttribute('y2', 78);
+          ln.setAttribute('class', i === 0 ? 'arrow-hl' : 'arrow');
+          ln.setAttribute('stroke-opacity', '0.6');
+          lEl.appendChild(ln);
+        }
+        // 在标签后加：x 128
+        const t = document.createElementNS(ns, 'text');
+        t.setAttribute('x', x0 + 16*(w+gap) + 10);
+        t.setAttribute('y', 40);
+        t.setAttribute('class', 'lbl');
+        t.textContent = '× 128';
+        qEl.appendChild(t);
+      })();</script>
+      <details>
+        <summary>查看：MLA 的数学技巧（吸收投影）</summary>
+<pre><code>原始:   score = Q × Kᵀ / √d
+        output = softmax(score) × V
+
+代入 K = latent × W_uk:
+  Q × Kᵀ = Q × W_ukᵀ × latentᵀ
+         = Q' × latentᵀ      ← Q' = Q × W_ukᵀ 提前合并
+
+代入 V = latent × W_uv:
+  output = softmax(score) × latent × W_uv × W_o
+         = softmax(score) × latent × W_o'   ← W_o' = W_uv × W_o
+
+✅ K 和 V 从来没被显式算出来。"还原"操作被合并进固定权重。</code></pre>
+      </details>
+      <p class="small">配置：head_dim=512，num_key_value_heads=1，num_attention_heads=128。50K 上下文 KV cache 从 81.5 GiB → 2.9 GB。</p>
+      <div class="tl-problem">↓ 留下：每条 KV 变小了，但<b>条数</b>还是和上下文长度一一对应</div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">DSA — DeepSeek Sparse Attention</span>
+        <span class="tl-year">2025 · DeepSeek V3.2</span>
+        <span class="tl-tag" style="background: rgba(126,231,135,0.15); color: var(--accent-2)">🔥 DeepSeek 原创</span>
+      </div>
+      <p>KV cache 全存，但<b>注意力计算时只看 top-k</b>。装一个轻量 Indexer 打分，挑最相关的 2048 条来做 attention。</p>
+      <p>50000 → 2048，计算量直接砍到 4%。</p>
+
+      <svg class="att-svg" viewBox="0 0 560 140">
+        <text x="10" y="14" class="lbl">DSA：50 条 KV 全存，但 Indexer 只挑亮色的几条做 attention（图示 50 条选 12）</text>
+        <text x="10" y="40" class="lbl">KV cache (全存)</text>
+        <g id="dsa-kv"></g>
+
+        <text x="10" y="88" class="lbl">Indexer 打分</text>
+        <g id="dsa-score"></g>
+
+        <text x="10" y="125" class="lbl">实际 attend</text>
+        <g id="dsa-att"></g>
+      </svg>
+      <p class="small" style="margin-top:6px">蓝色=被 Indexer 选中、参与 attention 的 KV；灰色=存了但不看的 KV。<b>存储没省，只省了计算。</b></p>
+      <script>(function(){
+        const ns = 'http://www.w3.org/2000/svg';
+        const N = 50;
+        const w = 9, gap = 1, x0 = 100;
+        // 模拟 indexer 选 top-k：让近的更高概率被选
+        const selected = new Set();
+        while (selected.size < 12) {
+          const r = Math.random();
+          // 偏向后部（近距离）
+          const idx = Math.min(N-1, Math.floor((1 - r*r) * N));
+          selected.add(idx);
+        }
+        const kvEl = document.getElementById('dsa-kv'),
+              scEl = document.getElementById('dsa-score'),
+              atEl = document.getElementById('dsa-att');
+        if (!kvEl) return;
+        for (let i = 0; i < N; i++) {
+          // KV cache 行：全存
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + i*(w+gap)); r.setAttribute('y', 28);
+          r.setAttribute('width', w); r.setAttribute('height', 20);
+          r.setAttribute('rx', 2);
+          r.setAttribute('class', selected.has(i) ? 'k' : 'compressed');
+          kvEl.appendChild(r);
+          // 分数行（高度随机，蓝色=选中）
+          const h = 4 + Math.random() * (selected.has(i) ? 22 : 10);
+          const s = document.createElementNS(ns, 'rect');
+          s.setAttribute('x', x0 + i*(w+gap)); s.setAttribute('y', 88 - h);
+          s.setAttribute('width', w); s.setAttribute('height', h);
+          s.setAttribute('rx', 1);
+          s.setAttribute('class', selected.has(i) ? 'k' : 'compressed');
+          scEl.appendChild(s);
+          // attend 行：只画选中的
+          if (selected.has(i)) {
+            const a = document.createElementNS(ns, 'rect');
+            a.setAttribute('x', x0 + i*(w+gap)); a.setAttribute('y', 113);
+            a.setAttribute('width', w); a.setAttribute('height', 15);
+            a.setAttribute('rx', 2);
+            a.setAttribute('class', 'k');
+            atEl.appendChild(a);
+          }
+        }
+      })();</script>
+      <div class="callout warn" style="margin-top:8px">
+        <strong>但 DSA 有两个限制：</strong>
+        ① 只省计算不省存储——KV cache 还是要全存（不存怎么选）；
+        ② 推理阶段才启用——训练时模型用的还是完整注意力。本质是<b>"不改脑子，换副眼镜"</b>。
+      </div>
+      <div class="tl-problem">↓ 留下：训推不一致 + 存储没省</div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">NSA — Native Sparse Attention</span>
+        <span class="tl-year">2025-02 · DeepSeek 论文 arXiv 2502.11089</span>
+        <span class="tl-tag">理论铺路</span>
+      </div>
+      <p>梁文锋署名。两个关键词：
+        <b>Hardware-Aligned</b>（块结构对齐 GPU 内存访问）+
+        <b>Natively Trainable</b>（从训练第一步就用稀疏，不是套眼镜）。</p>
+      <p>每层并行三个分支：<b>压缩全看</b>（粗概览）+ <b>选块精读</b>（top-16 块）+ <b>滑动窗口</b>（最近 512）+ 门控加权合并。</p>
+
+      <svg class="att-svg" viewBox="0 0 560 195">
+        <text x="10" y="14" class="lbl">NSA：每层三分支并行，门控加权（图示 64 tokens 上下文）</text>
+
+        <!-- 分支 1: 压缩全看 -->
+        <text x="10" y="40" class="lbl">① 压缩全看</text>
+        <g id="nsa-b1"></g>
+        <text x="495" y="40" class="anno">32:1</text>
+
+        <!-- 分支 2: 选块精读 -->
+        <text x="10" y="86" class="lbl">② 选块精读</text>
+        <g id="nsa-b2"></g>
+        <text x="495" y="86" class="anno">top-k 块</text>
+
+        <!-- 分支 3: 滑窗 -->
+        <text x="10" y="132" class="lbl">③ 滑动窗口</text>
+        <g id="nsa-b3"></g>
+        <text x="495" y="132" class="anno">最近 16</text>
+
+        <!-- 门控 -->
+        <text x="10" y="178" class="lbl">门控合并</text>
+        <rect x="100" y="166" width="380" height="20" rx="4" fill="url(#nsa-grad)"/>
+        <defs>
+          <linearGradient id="nsa-grad" x1="0" x2="1">
+            <stop offset="0" stop-color="#ffa657"/>
+            <stop offset="0.5" stop-color="#4493f8"/>
+            <stop offset="1" stop-color="#7ee787"/>
+          </linearGradient>
+        </defs>
+        <text x="240" y="180" style="fill:#0d1117;font-weight:700;font-size:11px">α·① + β·② + γ·③</text>
+      </svg>
+      <p class="small" style="margin-top:6px">三分支独立计算，最后门控加权求和。<b>训练时就用稀疏</b>——稀疏成了模型的归纳偏置。</p>
+      <script>(function(){
+        const ns = 'http://www.w3.org/2000/svg';
+        const N = 64;
+        const w = 5, gap = 1, x0 = 100;
+        const b1 = document.getElementById('nsa-b1'),
+              b2 = document.getElementById('nsa-b2'),
+              b3 = document.getElementById('nsa-b3');
+        if (!b1) return;
+        // 分支 1：32:1 压缩——画 2 个大块代替 64 个 token
+        for (let i = 0; i < 2; i++) {
+          const r = document.createElementNS(ns, 'rect');
+          const blockW = 32 * (w + gap) - gap;
+          r.setAttribute('x', x0 + i * (blockW + 4)); r.setAttribute('y', 28);
+          r.setAttribute('width', blockW); r.setAttribute('height', 16);
+          r.setAttribute('rx', 3); r.setAttribute('class', 'kv');
+          b1.appendChild(r);
+        }
+        // 分支 2：选块——8 块各 8 token，高亮 top-3
+        const selected = new Set([1, 4, 6]);
+        for (let i = 0; i < 8; i++) {
+          const blockW = 8 * (w + gap) - gap;
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + i * (blockW + 2)); r.setAttribute('y', 74);
+          r.setAttribute('width', blockW); r.setAttribute('height', 16);
+          r.setAttribute('rx', 2);
+          r.setAttribute('class', selected.has(i) ? 'k' : 'compressed');
+          b2.appendChild(r);
+        }
+        // 分支 3：滑窗——只画最后 16 个
+        for (let i = 0; i < N; i++) {
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + i*(w+gap)); r.setAttribute('y', 120);
+          r.setAttribute('width', w); r.setAttribute('height', 16);
+          r.setAttribute('rx', 1);
+          r.setAttribute('class', i >= N - 16 ? 'v' : 'compressed');
+          b3.appendChild(r);
+        }
+      })();</script>
+      <p class="small">实测：27B 模型在 9 项基准上平均 0.456 vs Full Attn 0.443，稀疏甚至比全注意力强。
+         AIME 24 数学竞赛 +7.5 分。原因：稀疏在训练时变成了 inductive bias。</p>
+      <div class="tl-problem">↓ 留下：27B 实验室原型，1.6T 工程化要重做</div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-head">
+        <span class="tl-name">CSA + HCA</span>
+        <span class="tl-year">2026 · DeepSeek V4</span>
+        <span class="tl-tag" style="background: rgba(255,166,87,0.2); color: var(--accent-3)">🚀 V4 落地</span>
+      </div>
+      <p>NSA 的工程实践：从"层内三分支并行"改成"<b>层间交替分工</b>"：</p>
+      <ul>
+        <li><b>HCA 层</b>（128:1 重压缩 + 全看）：扫一遍全局大意</li>
+        <li><b>CSA 层</b>（4:1 重叠压缩 + Lightning Indexer 选 top-1024）：精选细节</li>
+        <li><b>滑动窗口</b>（最近 128）：兜底最近上下文</li>
+      </ul>
+      <p>每过两层 = 1 全局粗扫 + 1 精选细节。50K KV cache 从 MLA 的 2.9 GB → 228 MB。</p>
+
+      <svg class="att-svg" viewBox="0 0 560 230">
+        <text x="10" y="14" class="lbl">V4：相邻两层做不同的事——HCA 看全局轮廓，CSA 选细节，滑窗兜底（图示 128 tokens）</text>
+
+        <!-- HCA 层 -->
+        <text x="10" y="40" class="lbl">HCA 层</text>
+        <text x="10" y="54" class="lbl" style="font-size:9px">128:1 全看</text>
+        <g id="csa-hca"></g>
+        <text x="495" y="40" class="anno">≈1 块</text>
+
+        <!-- 分隔 -->
+        <line x1="60" y1="80" x2="510" y2="80" class="arrow" stroke-dasharray="2,3"/>
+        <text x="265" y="76" class="lbl" style="font-size:9px">↓ 下一层</text>
+
+        <!-- CSA 层 -->
+        <text x="10" y="106" class="lbl">CSA 层</text>
+        <text x="10" y="120" class="lbl" style="font-size:9px">4:1 压缩</text>
+        <g id="csa-csa"></g>
+        <text x="495" y="106" class="anno">32 块</text>
+
+        <text x="10" y="160" class="lbl">+ Indexer</text>
+        <text x="10" y="174" class="lbl" style="font-size:9px">选 top-k</text>
+        <g id="csa-idx"></g>
+
+        <!-- 共有的滑窗 -->
+        <line x1="60" y1="200" x2="510" y2="200" class="arrow" stroke-dasharray="2,3"/>
+        <text x="10" y="217" class="lbl">滑窗 (128)</text>
+        <g id="csa-sw"></g>
+        <text x="495" y="217" class="anno">兜底</text>
+      </svg>
+      <p class="small" style="margin-top:6px">
+        <span style="color:var(--accent-3)">橙=HCA 压缩块</span>，
+        <span style="color:var(--accent)">蓝=CSA 选中块</span>，
+        <span style="color:#6e7681">灰=CSA 未选中块</span>，
+        <span style="color:var(--accent-2)">绿=滑窗</span>。
+        相邻两层组合，既扫了全局又选了细节。
+      </p>
+      <script>(function(){
+        const ns = 'http://www.w3.org/2000/svg';
+        const N = 128;
+        const w = 3, gap = 0.5, x0 = 100;
+        const hcaEl = document.getElementById('csa-hca'),
+              csaEl = document.getElementById('csa-csa'),
+              idxEl = document.getElementById('csa-idx'),
+              swEl  = document.getElementById('csa-sw');
+        if (!hcaEl) return;
+
+        // HCA：128 token → 1 块（用 1 个大块）
+        const big = document.createElementNS(ns, 'rect');
+        big.setAttribute('x', x0); big.setAttribute('y', 32);
+        big.setAttribute('width', N*(w+gap) - gap); big.setAttribute('height', 18);
+        big.setAttribute('rx', 3); big.setAttribute('class', 'kv');
+        hcaEl.appendChild(big);
+        const tx = document.createElementNS(ns, 'text');
+        tx.setAttribute('x', x0 + 20); tx.setAttribute('y', 45);
+        tx.setAttribute('style', 'fill:#0d1117;font-size:10px;font-weight:600');
+        tx.textContent = '压缩 128 → 1 条';
+        hcaEl.appendChild(tx);
+
+        // CSA：32 块各 4 token
+        const selSet = new Set([2, 5, 8, 12, 18, 22, 26, 30]);
+        for (let b = 0; b < 32; b++) {
+          const blockW = 4 * (w + gap) - gap;
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + b * (blockW + 1));
+          r.setAttribute('y', 98);
+          r.setAttribute('width', blockW); r.setAttribute('height', 18);
+          r.setAttribute('rx', 1.5);
+          r.setAttribute('class', selSet.has(b) ? 'k' : 'compressed');
+          csaEl.appendChild(r);
+        }
+        // Indexer：每块对应一个细条
+        for (let b = 0; b < 32; b++) {
+          const blockW = 4 * (w + gap) - gap;
+          const h = 4 + Math.random() * (selSet.has(b) ? 14 : 6);
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + b * (blockW + 1));
+          r.setAttribute('y', 182 - h);
+          r.setAttribute('width', blockW); r.setAttribute('height', h);
+          r.setAttribute('rx', 1);
+          r.setAttribute('class', selSet.has(b) ? 'k' : 'compressed');
+          idxEl.appendChild(r);
+        }
+
+        // 滑窗：128 token 都画出来，最后 128 全绿
+        for (let i = 0; i < N; i++) {
+          const r = document.createElementNS(ns, 'rect');
+          r.setAttribute('x', x0 + i*(w+gap));
+          r.setAttribute('y', 207);
+          r.setAttribute('width', w); r.setAttribute('height', 13);
+          r.setAttribute('rx', 1);
+          r.setAttribute('class', 'v');
+          swEl.appendChild(r);
+        }
+      })();</script>
+    </div>
+
+  </div>
+
+  <h3>2.3 NSA → V4 的三大工程改造</h3>
+  <div class="scroll-x">
+  <table>
+    <thead>
+      <tr><th></th><th>NSA 论文（2025-02）</th><th>V4 CSA/HCA（2026）</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><b>三分支怎么放</b></td><td>每层并行跑三个，门控加权求和</td><td class="highlight">奇偶层交替：CSA / HCA 错开</td></tr>
+      <tr><td><b>压缩块大小</b></td><td>统一 32（步长 16，重叠）</td><td class="highlight">CSA 4（重叠）/ HCA 128（不重叠）</td></tr>
+      <tr><td><b>选 top-k</b></td><td>复用压缩分支分数（可微分）</td><td class="highlight">独立 Lightning Indexer（FP4 全程）</td></tr>
+      <tr><td><b>滑窗大小</b></td><td>512</td><td>128（= max(块大小)）</td></tr>
+      <tr><td><b>训练阶段就用</b></td><td>是</td><td>是（继承 NSA）</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h3>2.4 一图看完：50K 上下文 KV cache 怎么从 81.5 GiB 砍到 228 MB</h3>
+
+  <div class="chart-box">
+    <div class="vis-title">每代注意力的 KV cache 总量（对数刻度，50K token × 61 层）</div>
+    <div class="chart-canvas-wrap" style="height: 380px;">
+      <canvas id="evoChart"></canvas>
+    </div>
+  </div>
+
+  <div class="scroll-x">
+  <table>
+    <thead>
+      <tr><th>阶段</th><th>核心想法</th><th class="num">50K KV cache</th><th class="num">vs 上一代</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>MHA（标准）</td><td>每头独立 K/V</td><td class="num">81.5 GiB</td><td class="num">基线</td></tr>
+      <tr><td>GQA (8 组)</td><td>分组共享 K/V</td><td class="num">5.1 GB</td><td class="num highlight">↓ 16×</td></tr>
+      <tr><td>MQA</td><td>全模型 1 组 K/V</td><td class="num">0.64 GB</td><td class="num highlight">↓ 8×</td></tr>
+      <tr><td>MLA (V2)</td><td>维度压缩到 latent 512</td><td class="num">2.9 GB</td><td class="num">基线 ↓ 28×</td></tr>
+      <tr><td>DSA (V3.2)</td><td>序列稀疏（只省计算）</td><td class="num">2.9 GB</td><td class="num">— 存储不省</td></tr>
+      <tr><td><b>CSA/HCA (V4)</b></td><td><b>序列压缩 + Indexer</b></td><td class="num highlight"><b>228 MB</b></td><td class="num highlight"><b>↓ 13×</b></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">从 MHA 到 V4，总共压了 99.7%。注意 DSA → CSA 这一步：<b>从"不改脑子换眼镜" 进化到 "眼镜从一开始就长在脑子里"</b>。</p>
+
+  <h3>2.5 多想一步：为什么 KV cache 能被压掉 99.7%？</h3>
+  <div class="callout success">
+    <p>大模型权重存的是<b>"知识"</b>——世界的地图。KV cache 存的不是地图，是当前这段上下文<b>在地图上走过的路径</b>。</p>
+    <p style="margin-top:8px">路径能被压到 0.3% 而效果不掉，是因为<b>自然语言的有效路径本来就是低维的</b>。
+       7168 维的隐藏空间里，大部分维度是 MLP 临时展开的"计算脚手架"，真正的语义坐标集中在几百维子空间里
+       （Intrinsic Dimension 实测约占隐藏空间个位数百分比）。</p>
+    <p style="margin-top:8px">
+       V4 所有压缩——MLA 砍维度、Compressor 砍条数、Indexer 选 top-k——<b>都在压路径，没人动地图</b>。
+       这不是算法的胜利，是语言本身的低维性质。
+    </p>
+  </div>
+
+  <script>
+  (function(){
+    const el = document.getElementById('evoChart');
+    if (!el) return;
+    new Chart(el.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: ['MHA\n2017', 'GQA(8组)\n2023', 'MQA\n2019', 'MLA (V2)\n2024', 'DSA (V3.2)\n2025', 'CSA/HCA (V4)\n2026'],
+        datasets: [{
+          label: 'KV cache 总量 (MB)',
+          data: [83456, 5222, 655, 2970, 2970, 228],
+          backgroundColor: ['#ff7b72','#d2a8ff','#a371f7','#7ee787','#ffa657','#4493f8'],
+          borderRadius: 6
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => c.parsed.y.toLocaleString() + ' MB' } }
+        },
+        scales: {
+          y: {
+            type: 'logarithmic',
+            ticks: { color: '#8b949e', callback: v => v >= 1024 ? (v/1024).toFixed(0)+' GB' : v + ' MB' },
+            grid: { color: 'rgba(139,148,158,0.1)' }
+          },
+          x: { ticks: { color: '#8b949e', font: { size: 11 } }, grid: { display: false } }
+        }
+      }
+    });
+  })();
+  </script>
+</section>
