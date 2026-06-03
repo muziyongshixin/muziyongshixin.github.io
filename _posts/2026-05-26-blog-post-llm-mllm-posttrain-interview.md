@@ -630,7 +630,7 @@ $$\mathcal{L}_{\text{policy}} = -\min\Big(\hat{A}_t \cdot \rho_t, \; \hat{A}_t \
 
 其中：
 - $\rho_t = \frac{\pi_\theta(a_t\|s_t)}{\pi_{\text{ref}}(a_t\|s_t)}$  是新旧 policy 的概率比
-- $$\hat{A}_t = r_t + \gamma V(s_{t+1}) - V(s_t)$$    是优势函数（GAE 估计）
+- $\hat{A}_t = r_t + \gamma V(s_{t+1}) - V(s_t)$    是优势函数（GAE 估计）
 - $\epsilon$ 通常设为 0.2，防止 policy 更新过大
 
 **2. KL Penalty：**
