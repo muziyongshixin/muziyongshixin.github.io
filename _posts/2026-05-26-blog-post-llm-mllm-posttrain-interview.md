@@ -629,7 +629,7 @@ $$\mathcal{L}_{\text{PPO}} = \mathcal{L}_{\text{policy}} + \beta \cdot \mathcal{
 $$\mathcal{L}_{\text{policy}} = -\min\Big(\hat{A}_t \cdot \rho_t, \; \hat{A}_t \cdot \text{clip}(\rho_t, 1-\epsilon, 1+\epsilon)\Big)$$
 
 其中：
-- $\rho_t = \frac{\pi_\theta(a_t|s_t)}{\pi_{\text{ref}}(a_t|s_t)}$ 是新旧 policy 的概率比
+- $\rho_t = \frac{\pi_\theta(a_t\|s_t)}{\pi_{\text{ref}}(a_t\|s_t)}$  是新旧 policy 的概率比
 - $\hat{A}_t = r_t + \gamma V(s_{t+1}) - V(s_t)$ 是优势函数（GAE 估计）
 - $\epsilon$ 通常设为 0.2，防止 policy 更新过大
 
@@ -658,7 +658,7 @@ $$\mathcal{L}_{\text{entropy}} = -\sum_a \pi_\theta(a|s) \log \pi_\theta(a|s)$$
 
 **延伸追问：**
 - PPO clip 的 $\epsilon$ 为什么设 0.2？（经验值，太大允许过大更新，太小限制太强导致学习慢）
-- GAE 如何计算优势函数？（$\hat{A}_t = \sum_{l=0}^{\infty}(\gamma\lambda)^l \delta_{t+l}$，$\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$）
+- GAE 如何计算优势函数？$\hat{A}_t = \sum_{l=0}^{\infty}(\gamma\lambda)^l \delta_{t+l}$，$\delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$
 
 **参考资料：**
 - [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
