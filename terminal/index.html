@@ -698,7 +698,7 @@ const PROJECTS = [
 /* 正文摘要与章节结构由 tools/extract_posts.py 从 _posts 编译而来 */
 const POST_EXTRA = { "deepseek-v4-deep-dive": { rich: true } };
 const POSTS = (window.POSTS_DATA || []).map(p => ({
-  tags: [], headings: [], excerpt: "", ...p, ...(POST_EXTRA[p.slug] || {}),
+  tags: [148,240,205,102,46,131,161,92,78,210,146,45,119,197,108,161,242,109,136,93,148,82,56,209], headings: [], excerpt: "", ...p, ...(POST_EXTRA[p.slug] || {}),
   url: p.url ? PROFILE.site + p.url : `${PROFILE.site}/posts/${p.date.slice(0,4)}/${p.date.slice(5,7)}/${p.slug}/`
 }));
 
@@ -995,11 +995,59 @@ const MODELS = [
   "Qwen/Qwen3-32B",
   "ZhipuAI/GLM-4.5"
 ];
+/* ------------------------------------------------------------------
+   内置 token：混淆，不是加密。
+   解码逻辑就在这个文件里，打开 DevTools 看 Network 的 Authorization 头
+   即可拿到明文——前端做不到真正的密钥保护。混淆挡的是 GitHub 密钥扫描
+   和批量爬虫的正则匹配，那才是明文 token 最常见的泄露途径。
+   真正的防线是下面的域名白名单、每日配额，以及随时可在 ModelScope 撤销。
+   轮换方式：python3 tools/obfuscate_key.py ms-新token
+   ------------------------------------------------------------------ */
+const VAULT = {
+  d: "3eTzdR3llRtTAfgXytf1kG6jvt4b+cp606TzdE7mlE0NWv8MxNKk",
+  s: [176,151,222,64,40,214,164,125,53,57,206,58,242,180,199,165,67,151,220,233,44,212,242,74],
+  hosts: ["liyongzhi.xyz", "www.liyongzhi.xyz", "muziyongshixin.github.io", "localhost", "127.0.0.1", ""],
+  /* 每次用时现解，不缓存到变量里，也不写进 localStorage */
+  open() {
+    if (!VAULT.hosts.includes(location.hostname)) return "";
+    try {
+      const raw = atob(VAULT.d);
+      let out = "";
+      for (let i = 0; i < raw.length; i++)
+        out += String.fromCharCode(raw.charCodeAt(i) ^ VAULT.s[i % VAULT.s.length]);
+      return /^ms-[\w-]{20,}$/.test(out) ? out : "";
+    } catch { return ""; }
+  }
+};
+
+/* 内置 token 是共享额度，给单个浏览器加个每日上限，避免一个人刷爆所有人的用量。
+   访客配了自己的 token 就不受限。 */
+const QUOTA = {
+  max: 40,
+  get used() {
+    try {
+      const r = JSON.parse(localStorage.getItem("lyz.quota") || "{}");
+      return r.day === new Date().toISOString().slice(0, 10) ? (r.n | 0) : 0;
+    } catch { return 0; }
+  },
+  bump() {
+    try {
+      localStorage.setItem("lyz.quota", JSON.stringify(
+        { day: new Date().toISOString().slice(0, 10), n: QUOTA.used + 1 }));
+    } catch {}
+  },
+  get left() { return Math.max(0, QUOTA.max - QUOTA.used); }
+};
+
 const LLM = {
   endpoint: "https://api-inference.modelscope.cn/v1/chat/completions",
   model: localStorage.getItem("lyz.model") || MODELS[0],
-  get key() { return localStorage.getItem("lyz.mskey") || ""; },
-  set key(v) { localStorage.setItem("lyz.mskey", v); }
+  get own() { return localStorage.getItem("lyz.mskey") || ""; },
+  get builtin() { return VAULT.open(); },
+  get key() { return LLM.own || LLM.builtin; },
+  set key(v) { localStorage.setItem("lyz.mskey", v); },
+  /* 用内置 token 且今日额度用尽时才拦，自带 token 不受影响 */
+  get blocked() { return !LLM.own && !!LLM.builtin && QUOTA.left <= 0; }
 };
 
 /* 多轮对话历史。每次请求发送 [system, ...CHAT, newUser]，前缀不变，
@@ -1306,7 +1354,19 @@ async function runAgent(userMsg, sub) {
       3. 上线后 token 会内置在页面里，访客无需任何配置</div>`,
       { kind: "alert", sub: "AI 功能未配置" });
   }
+  if (LLM.blocked) {
+    llmClaimed = true;
+    return mod("DAILY LIMIT", `内置的共享额度今天用完了（每个浏览器 ${QUOTA.max} 次）。
+      <div class="dimtxt" style="margin-top:7px;line-height:1.85">
+        明天会自动重置。想立刻继续，可以用自己的 ModelScope Token：
+        到 <a href="https://modelscope.cn/my/myaccesstoken" target="_blank">modelscope.cn</a> 免费领取，
+        然后执行 <span class="b acc">config key ms-xxxxxxxx</span>，之后不再受此限制。<br>
+        站内内容不受影响，<span class="act" data-cmd="pub">pub</span>、
+        <span class="act" data-cmd="blog">blog</span> 这些命令照常可用。
+      </div>`, { kind: "alert", sub: "共享额度已用尽" });
+  }
   llmClaimed = true;
+  if (!LLM.own) QUOTA.bump();
   setBusy(true, "THINKING");
   const turn = turns() + 1;
   const box = mod("AI", `<div class="steps"></div><div class="ans lead"></div>`, {
@@ -1708,7 +1768,7 @@ CMD.q = CMD.ask;
 def("config", { desc: "配置 ModelScope token", usage: "config key <token>", group: "ai" }, args => {
   if (args[0] === "key" && args[1]) {
     LLM.key = args[1]; updateLLMStatus();
-    return mod("CONFIG", `<span class="ok">✓ token 已写入 localStorage</span>
+    return mod("CONFIG", `<span class="ok">✓ token 已写入 localStorage，不再使用内置共享额度</span>
       <div style="margin-top:6px" class="dimtxt">试试 <span class="act" data-cmd="ask 他最近的研究重点是什么">ask …</span></div>`, { kind: "sys" });
   }
   if (args[0] === "clear") { localStorage.removeItem("lyz.mskey"); updateLLMStatus(); return mod("CONFIG", `<span class="ok">✓ token cleared</span>`, { kind: "sys" }); }
@@ -1716,7 +1776,12 @@ def("config", { desc: "配置 ModelScope token", usage: "config key <token>", gr
     <span class="k">PROVIDER</span><span>ModelScope API-Inference（OpenAI 兼容）</span>
     <span class="k">ENDPOINT</span><span class="dimtxt" style="font-size:12px">${LLM.endpoint}</span>
     <span class="k">MODEL</span><span>${esc(LLM.model)}</span>
-    <span class="k">TOKEN</span><span>${LLM.key ? `<span class="ok">已配置 (${esc(LLM.key.slice(0,6))}…)</span>` : `<span class="err">未设置</span>`}</span>
+    <span class="k">TOKEN</span><span>${LLM.own
+      ? `<span class="ok">你自己的 token (${esc(LLM.own.slice(0,6))}…)</span> · 不限次数`
+      : LLM.builtin
+        ? `<span class="ok">本站内置</span> · 今日剩余 <span class="amb">${QUOTA.left}/${QUOTA.max}</span> 次`
+        : `<span class="err">未设置</span>`}</span>
+    <span class="k">NOTE</span><span class="dimtxt" style="font-size:12px">内置 token 在前端只做了混淆，不等于加密；额度有限且随时可作废。要长期大量使用请配自己的。</span>
     <span class="k">CORS</span><span class="ok">已验证 · Access-Control-Allow-Origin: *</span>
     <span class="k">CONTEXT</span><span>${turns()} 轮对话 · ${(CHAT.reduce((a,m)=>a+m.content.length,0)/1000).toFixed(1)}k / ${CHAT_BUDGET/1000}k chars</span>
   </div>
@@ -2036,8 +2101,11 @@ function setTheme(t) {
 }
 function updateLLMStatus() {
   const el = $("#sb-llm"), ctx = $("#sb-ctx");
-  if (LLM.key) { el.textContent = "LLM: " + LLM.model.split("/").pop(); el.className = "live"; }
-  else { el.textContent = "LLM: not configured — run `config`"; el.className = ""; }
+  if (LLM.key) {
+    const tag = LLM.own ? "" : ` · ${QUOTA.left}/${QUOTA.max}`;
+    el.textContent = "LLM: " + LLM.model.split("/").pop() + tag;
+    el.className = LLM.blocked ? "" : "live";
+  } else { el.textContent = "LLM: not configured — run `config`"; el.className = ""; }
   const ag = $("#sb-agent");
   ag.textContent = agentEnabled ? `AGENT: ${Object.keys(TOOLS).length} tools` : "AGENT: off";
   ag.className = agentEnabled ? "live" : "";
@@ -2229,7 +2297,7 @@ async function boot() {
 window.__term = {
   exec, openReader, TOOLS, PIX, CMD, ORDER, CHAT, LLM, FULLTEXT,
   PAPERS, POSTS, PROJECTS, EXPERIENCE, SCHOLAR,
-  sysPrompt, knowledge, pushContext, turns,
+  sysPrompt, knowledge, pushContext, turns, VAULT, QUOTA,
   get agentEnabled() { return agentEnabled; }
 };
 

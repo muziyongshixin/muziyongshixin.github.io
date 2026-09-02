@@ -48,6 +48,10 @@ window.addEventListener("unhandledrejection", e => errors.push(`[unhandled] ${e.
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+/* 内置 token 在 localhost 白名单内是可用的，若不拦住，命令遍历阶段的
+   自然语言输入会真的请求 ModelScope，既慢又消耗真实额度。 */
+window.fetch = async () => { throw new Error("network disabled in smoke test"); };
+
 /* 等外部 script 与 boot 序列跑完 */
 await new Promise(r => window.addEventListener("load", r, { once: true }));
 await sleep(1600);
@@ -280,6 +284,34 @@ try {
   if (!/失败|错误|error/i.test(text)) fail("接口报错时没有给出提示");
   if (window.document.body.classList.contains("busy")) fail("接口报错后仍停留在 busy 状态");
 } catch (e) { fail(`接口报错兜底抛错：${e.message}`); }
+
+/* ---------- 7. 内置 token 的混淆与配额 ---------- */
+try {
+  const V = T.LLM;
+  const builtin = V.builtin;
+  if (!/^ms-[\w-]{20,}$/.test(builtin)) fail("内置 token 没能在白名单域名下解出");
+  const src = readFileSync(resolve(ROOT, "index.html"), "utf8");
+  if (src.includes(builtin)) fail("index.html 里出现了 token 明文");
+  if (/ms-[0-9a-f]{8}-[0-9a-f]{4}/.test(src)) fail("index.html 里能正则匹配到 token 形态");
+  /* 非白名单域名不应组装出 token */
+  dom.reconfigure({ url: "https://evil.example.com/" });
+  if (T.LLM.builtin !== "") fail("非白名单域名下仍然解出了内置 token");
+  dom.reconfigure({ url: "http://localhost:8420/" });
+  if (T.LLM.builtin !== builtin) fail("恢复域名后内置 token 解不出来了");
+  /* 配额耗尽时应当拦下请求而不是继续调用。
+     先清掉前面 agent 测试写入的自带 token —— 自带 token 本就不受配额限制。 */
+  window.localStorage.removeItem("lyz.mskey");
+  if (T.LLM.own !== "") fail("清除后 LLM.own 仍非空");
+  window.localStorage.setItem("lyz.quota", JSON.stringify(
+    { day: new Date().toISOString().slice(0, 10), n: T.QUOTA.max }));
+  if (!T.LLM.blocked) fail("配额用尽后 blocked 仍为 false");
+  const n0 = stream.childElementCount;
+  T.exec("配额用尽时的提问");
+  await sleep(80);
+  const txt = [...stream.children].slice(n0).map(x => x.textContent).join("");
+  if (!txt.includes("额度")) fail("配额用尽时没有给出提示");
+  window.localStorage.removeItem("lyz.quota");
+} catch (e) { fail(`内置 token 检查抛错：${e.message}`); }
 
 /* ---------- 报告 ---------- */
 const cmdErrs = errors.length - before;

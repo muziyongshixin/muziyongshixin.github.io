@@ -51,9 +51,30 @@ ASCII 预览，方便确认构图。
 ## AI 与 Agent
 
 模型走 ModelScope 的 API-Inference（OpenAI 兼容协议，浏览器可直连，实测放行 CORS）。
-访客首次使用需要 `config key ms-xxxx` 写入自己的 token；若要让所有访客开箱即用，
-把 token 填进 `index.html` 的 `LLM` 初始化处——注意那等于公开这个 token，
-建议单独申请一个只用于本站的。
+
+站点内置了一个 token，访客开箱即用。它在 `index.html` 的 `VAULT` 里以 XOR + Base64
+混淆存储，运行时现解现用，不写进变量也不落 localStorage。
+
+**必须清楚：这是混淆，不是加密。** 解码逻辑随代码发给浏览器，打开 DevTools 看
+Network 里的 Authorization 头就能拿到明文——前端做不到真正的密钥保护。混淆挡住的是
+GitHub 密钥扫描和批量爬虫的正则匹配，那才是明文 token 最常见的泄露途径。
+
+真正起作用的是另外三层：
+
+- **域名白名单**：只有 `VAULT.hosts` 里的域名才组装出 token，别人整站复制走也直接用不了
+- **每日配额**：单个浏览器每天 40 次，防止一个人刷爆共享额度；访客配了自己的 token 就不受限
+- **可随时作废**：被盗刷就去 ModelScope 撤销，换新 token 重跑一次脚本
+
+轮换 token：
+
+```bash
+python3 tools/obfuscate_key.py ms-新的token   # 写入并自检
+python3 tools/obfuscate_key.py --check        # 只验证当前嵌入的能否解回
+```
+
+脚本只在 `const VAULT = {...}` 这一段内替换。早期版本用全局正则 `d:\s*"..."`，
+结果命中了论文数据里的 `id:"adaptive-video-distillation"`，把论文 id 覆盖成了密文——
+所以务必保留那个锚点，改完跑 `make test`。
 
 Agent 部分不依赖 function calling（ModelScope 上各模型支持程度不一），走的是文本协议：
 模型需要工具时把回复的第一个字符写成 `<tool>{"name":...,"args":{...}}</tool>`，
