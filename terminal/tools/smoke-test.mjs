@@ -266,13 +266,39 @@ try {
   if (sent.length !== 2) fail(`工具链路应请求 2 次，实际 ${sent.length} 次`);
   if (T.CHAT.length !== before + 4) fail(`工具链路应写入 4 条上下文，实际 ${T.CHAT.length - before} 条`);
   const second = sent[1].messages;
-  if (!second.some(m => m.content.includes("[工具结果 · site_search]")))
+  if (!second.some(m => m.content.includes("site_search 工具返回的资料")))
     fail("第二次请求没有携带工具结果");
   /* KV cache 的前提：第二次请求必须以第一次的消息为前缀 */
   const p1 = sent[0].messages, p2 = second;
   const prefixOK = p1.every((m, i) => p2[i] && p2[i].role === m.role && p2[i].content === m.content);
   if (!prefixOK) fail("第二次请求没有复用第一次的消息前缀，KV cache 会失效");
 } catch (e) { fail(`agent 工具链路抛错：${e.message}`); }
+
+/* 6b-2. 工具标签不在开头也要能识别 —— Qwen 习惯先说一句话再给标签，
+   早期版本要求 <tool> 必须是第一个字符，导致整段带标签的文本被当答案渲染 */
+try {
+  const before = T.CHAT.length;
+  const out = await agentRun("先说明再调工具的情形", [
+    '我来查一下这篇论文的原文细节。\n\n<tool>{"name":"read_paper","args":{"id":"video-steganography"}}</tool>',
+    "这篇论文用时序残差建模提升了视频隐写的容量。",
+  ]);
+  const text = out.map(n => n.textContent).join("");
+  if (!out.some(n => n.querySelector?.(".tool"))) fail("标签前有文字时没有识别成工具调用");
+  if (text.includes("<tool")) fail("协议标签泄漏到了页面上");
+  if (!text.includes("我来查一下")) fail("标签前的前言丢失了");
+  if (sent.length !== 2) fail(`应请求 2 次，实际 ${sent.length} 次`);
+  const saved = T.CHAT.slice(before).map(m => m.content).join("");
+  if (!/工具返回的资料/.test(saved)) fail("工具结果没有用新的注入措辞");
+  if (/\[工具结果 ·/.test(saved)) fail("仍在使用会被模型模仿的标记式措辞");
+} catch (e) { fail(`前言+工具调用检查抛错：${e.message}`); }
+
+/* 6b-3. 只有半个标签、解析不出 JSON 时，不能把协议文本吐给用户 */
+try {
+  const out = await agentRun("残缺标签的情形", ['<tool>{"name":"read_pa']);
+  const text = out.map(n => n.querySelector?.(".ans")?.textContent || "").join("");
+  if (text.includes("<tool") || text.includes('"name"'))
+    fail("解析失败时把协议原文泄漏给了用户");
+} catch (e) { fail(`残缺标签检查抛错：${e.message}`); }
 
 /* 6c. 模型返回坏 JSON 时不能卡死 */
 try {

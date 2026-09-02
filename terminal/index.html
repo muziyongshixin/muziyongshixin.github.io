@@ -1167,7 +1167,7 @@ const sysPrompt = () => `你是 ${PROFILE.name}（英文名 Yongzhi Li）个人�
 
 ${agentEnabled ? toolsPrompt() : ""}
 
-关于对话历史：这个终端里，访客执行命令产生的输出也会作为 assistant 消息记录下来，以「[终端输出 · 命令名]」开头。那些不是你说的话，而是访客屏幕上看到的内容。你要把它们当作访客当前的视野：当他说「第三篇」「刚才那个项目」「上面提到的公司」时，去最近的终端输出里找对应的条目。回答时不要复述整段终端输出，也不要假装那是你说的。
+关于对话历史：这个终端里，访客执行命令产生的输出也会作为 assistant 消息记录下来，以「[终端输出 · 命令名]」开头。那些不是你说的话，而是访客屏幕上看到的内容。你要把它们当作访客当前的视野：当他说「第三篇」「刚才那个项目」「上面提到的公司」时，去最近的终端输出里找对应的条目。回答时不要复述整段终端输出，也不要假装那是你说的，更不要模仿这种带方括号的标记格式来组织你自己的回答——你的回答永远是给人读的自然语言。
 
 <资料>
 ${knowledge()}
@@ -1363,10 +1363,10 @@ function toolsPrompt() {
 
 ${Object.entries(TOOLS).map(([n, t]) => `- ${n}(${t.args})\n  ${t.desc}`).join("\n")}
 
-调用方法：把回复的**第一个字符**就写成工具标签，整条回复只包含这一行，不要有任何其它文字：
+调用方法：输出下面这一行标签，参数用合法 JSON。标签前可以有一句简短说明（例如「我来查一下这篇论文」），但标签之后不要再写任何内容：
 <tool>{"name":"工具名","args":{"参数":"值"}}</tool>
 
-工具结果会以「[工具结果 · 工具名]」开头的消息返回给你，然后你再基于它作答。最多连续调用 ${AGENT_MAX_STEPS} 次工具。如果不需要工具，就直接正常作答，不要输出工具标签。`;
+工具执行完，结果会作为一条新消息发给你。**拿到结果后直接用自然语言回答用户最初的问题**，不要复述资料原文，不要重复工具名或任何形如「[工具结果 · xxx]」的标记，也不要再输出工具标签（除非确实还需要另一个工具）。最多连续调用 ${AGENT_MAX_STEPS} 次。不需要工具时就直接作答。`;
 }
 
 let busy = false, llmClaimed = false;
@@ -1420,7 +1420,7 @@ async function runAgent(userMsg, sub) {
     for (let step = 1; step <= AGENT_MAX_STEPS + 1; step++) {
       const msgs = [{ role: "system", content: sysPrompt() },
                     ...CHAT, { role: "user", content: userMsg }, ...hop];
-      let acc = "", isTool = null, got = false, think = "";
+      let acc = "", isTool = null, got = false, think = "", preamble = "";
       let thinkEl = null;
       const showThink = () => {
         if (!thinkEl) {
@@ -1455,30 +1455,48 @@ async function runAgent(userMsg, sub) {
           if (!t) return;
           if (!got) { got = true; if (!ttft) ttft = Date.now() - t0; sealThink(); }
           acc += t;
-          /* 工具调用必须出现在回复开头，所以只要前几个字符不是 "<tool>" 的前缀，
-             就能立刻确定这是普通回答，继续流式渲染，不牺牲首字延迟。 */
+          /* 不能要求 <tool> 出现在回复开头：Qwen 习惯先说一句「我来读取这篇论文」
+             再给标签，DeepSeek 才是直接给标签。所以在任意位置检测，标签之前的
+             那句话当作前言照常显示。 */
           if (isTool === null) {
-            const head = acc.trimStart(), TAG = "<tool>";
-            if (head.startsWith("<tool")) { isTool = true; }
-            else if (head && !TAG.startsWith(head.slice(0, TAG.length))) { isTool = false; }
+            const at = acc.indexOf("<tool");
+            if (at >= 0) { isTool = true; preamble = acc.slice(0, at).trim(); }
           }
-          if (isTool === false) { ans.innerHTML = esc(acc).replace(/\n/g, "<br>"); scroll(); }
+          if (isTool) {
+            ans.innerHTML = preamble
+              ? esc(preamble).replace(/\n/g, "<br>") + `<div class="dimtxt" style="margin-top:5px">${spinner("准备调用工具…")}</div>`
+              : spinner("准备调用工具…");
+          } else {
+            ans.innerHTML = esc(acc).replace(/\n/g, "<br>");
+          }
+          scroll();
         });
       } finally { clearInterval(tick); tick = null; sealThink(); }
 
-      if (!isTool) { final = acc; break; }
-
-      /* ---- 解析并执行工具 ---- */
-      const m = acc.match(/<tool>\s*([\s\S]*?)\s*<\/tool>/) || acc.match(/\{[\s\S]*\}/);
+      /* ---- 解析工具调用 ---- */
+      const m = acc.match(/<tool>\s*(\{[\s\S]*?\})\s*<\/tool>/) ||
+                acc.match(/<tool>\s*(\{[\s\S]*\})/) ||
+                (isTool ? acc.match(/(\{[\s\S]*?"name"[\s\S]*?\})/) : null);
       let call = null;
-      try { call = JSON.parse(m ? (m[1] ?? m[0]) : acc); } catch {}
+      if (m) { try { call = JSON.parse(m[1]); } catch {} }
+
       if (!call?.name || !TOOLS[call.name]) {
-        final = acc.replace(/<\/?tool>/g, "");
+        /* 没解析出可用的工具调用就当普通回答，但要把协议标签擦掉，
+           不能让 <tool>{...}</tool> 这种内部格式泄漏到页面和历史里 */
+        final = acc.replace(/<tool>[\s\S]*?(<\/tool>|$)/g, "").trim() || preamble;
+        if (!final) failed = "模型没有给出有效回答";
         break;
       }
       if (step > AGENT_MAX_STEPS) { failed = "已达到工具调用上限"; break; }
 
       calls++;
+      if (preamble) {
+        const pre = document.createElement("div");
+        pre.className = "lead";
+        pre.style.cssText = "margin-bottom:8px";
+        pre.textContent = preamble;
+        steps.appendChild(pre);
+      }
       const card = document.createElement("div");
       card.className = "tool";
       card.dataset.state = "run";
@@ -1512,7 +1530,9 @@ async function runAgent(userMsg, sub) {
       scroll();
 
       hop.push({ role: "assistant", content: acc },
-               { role: "user", content: `[工具结果 · ${call.name}]\n${out}` });
+               { role: "user", content:
+                 `以下是 ${call.name} 工具返回的资料，仅供你参考。请直接用它回答我上一个问题，` +
+                 `用自然语言组织答案，不要复述这段资料本身，也不要输出任何标记或标题。\n\n${out}` });
     }
 
     if (!final && !failed) failed = "模型没有返回内容";
