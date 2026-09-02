@@ -65,6 +65,26 @@ GitHub 密钥扫描和批量爬虫的正则匹配，那才是明文 token 最常
 - **每日配额**：单个浏览器每天 40 次，防止一个人刷爆共享额度；访客配了自己的 token 就不受限
 - **可随时作废**：被盗刷就去 ModelScope 撤销，换新 token 重跑一次脚本
 
+### 模型
+
+`MODELS` 里只保留了实测跑通的四个（`model` 命令可切换）：
+
+| 模型 | 首字正文 | 备注 |
+| --- | --- | --- |
+| `Qwen/Qwen3.8-Flash-Next` | 1.3s | 默认，带思考 |
+| `Qwen/Qwen3.8-27B` | 4.3s | 更大，带思考 |
+| `deepseek-ai/DeepSeek-V4-Flash-0731` | 1.8s | 带思考 |
+| `Qwen/Qwen3-235B-A22B-Instruct-2507` | 0.6s | 不思考，最快 |
+
+前三个是 reasoning 模型：流式时先吐 `reasoning_content`，`content` 要等思考结束
+才出现。前端两路都接，思考过程实时显示在灰色区域里，正文一到就折叠成
+「思考了 N 字」，点击可展开。**只接 `content` 会导致模型思考的那一两秒页面完全没有反馈。**
+思考内容不写入对话历史。
+
+`DeepSeek-V3.1`、`Qwen3-32B`、`GLM-4.5` 在 ModelScope 上返回
+"has no provider supported"，已从列表移除；`LLM.model` 会校验 localStorage
+里存的模型是否还在列表中，不在就回退到默认。
+
 轮换 token：
 
 ```bash

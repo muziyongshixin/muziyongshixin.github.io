@@ -193,8 +193,16 @@ try {
    就藏在这里），必须真正执行到。 */
 function sse(text, chunk = 24) {
   const parts = [];
+  /* reasoning 模型的真实形态：先若干 reasoning_content（此时 content 是空串），
+     再是正文；中间还可能夹一个 choices 为空数组的心跳包。 */
+  let reason = "";
+  const m = /^\[\[think:(.*?)\]\]/s.exec(text);
+  if (m) { reason = m[1]; text = text.slice(m[0].length); }
+  for (let i = 0; i < reason.length; i += chunk)
+    parts.push(`data: ${JSON.stringify({ choices: [{ delta: { role: null, content: "", reasoning_content: reason.slice(i, i + chunk) } }] })}\n\n`);
+  if (reason) parts.push(`data: ${JSON.stringify({ choices: [] })}\n\n`);
   for (let i = 0; i < text.length; i += chunk)
-    parts.push(`data: ${JSON.stringify({ choices: [{ delta: { content: text.slice(i, i + chunk) } }] })}\n\n`);
+    parts.push(`data: ${JSON.stringify({ choices: [{ delta: { content: text.slice(i, i + chunk), reasoning_content: "" } }] })}\n\n`);
   parts.push("data: [DONE]\n\n");
   /* 必须用页面 realm 的 TextEncoder：jsdom 里 window.TextDecoder 不接受
      Node realm 造出来的 Uint8Array，解码会静默失败。 */
@@ -273,7 +281,28 @@ try {
   if (window.document.body.classList.contains("busy")) fail("坏工具调用后仍停留在 busy 状态");
 } catch (e) { fail(`坏工具调用抛错：${e.message}`); }
 
-/* 6d. 接口报错时的兜底 */
+/* 6d. reasoning 模型：思考先到、正文后到，两者都要正确落地 */
+try {
+  window.localStorage.removeItem("lyz.quota");
+  const before = T.CHAT.length;
+  const out = await agentRun("触发一次带思考的回答",
+    ["[[think:我需要先回忆他的研究方向，再组织一个简短的回答。]]他主要做多模态生成与广告智能。"]);
+  const box = out.find(n => n.querySelector?.(".think"));
+  if (!box) fail("reasoning 内容没有渲染成思考区域");
+  else {
+    const th = box.querySelector(".think");
+    if (!th.classList.contains("done")) fail("正文开始后思考区域没有收起");
+    if (!th.textContent.includes("思考了")) fail("思考区域没有显示字数摘要");
+    if (!th.textContent.includes("先回忆")) fail("思考内容丢失");
+  }
+  const ans = out.map(n => n.querySelector?.(".ans")?.textContent || "").join("");
+  if (!ans.includes("多模态生成")) fail("正文没有正确渲染");
+  if (ans.includes("先回忆")) fail("思考内容混进了正文");
+  const saved = T.CHAT.slice(before).map(m => m.content).join("");
+  if (saved.includes("先回忆")) fail("思考内容被写进了对话历史（不应该）");
+} catch (e) { fail(`reasoning 流检查抛错：${e.message}`); }
+
+/* 6e. 接口报错时的兜底（会替换掉 mock fetch，放在最后） */
 try {
   queue = [];
   window.fetch = async () => { throw new Error("network down"); };

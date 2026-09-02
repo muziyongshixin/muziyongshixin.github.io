@@ -375,6 +375,19 @@ body.busy #caret { animation: none; opacity: .28; }
 .sb-spacer { flex: 1; }
 .spin { color: var(--accent); }
 
+/* ---- reasoning 模型的思考过程 ---- */
+.think {
+  border-left: 2px solid var(--faint); padding: 4px 0 4px 10px; margin-bottom: 9px;
+  color: var(--faint); font-size: 11.5px; line-height: 1.6; white-space: pre-wrap;
+  overflow-wrap: anywhere; animation: modin .2s;
+}
+.think-head { color: var(--dim); letter-spacing: .06em; }
+.think-body { max-height: 54px; overflow: hidden;
+              mask-image: linear-gradient(180deg, transparent, #000 40%); }
+.think.done { cursor: pointer; }
+.think.done .think-body { display: none; }
+.think.done.open .think-body { display: block; max-height: none; mask-image: none; margin-top: 3px; }
+
 /* ---- agent tool calls ---- */
 .tool { border: 1px solid var(--line); border-left: 2px solid var(--info);
         background: color-mix(in srgb, var(--info) 5%, transparent);
@@ -987,14 +1000,17 @@ const PIX = (function pixelPortrait() {
 /* ============================================================
    4. LLM
    ============================================================ */
+/* 只保留实测跑通的。DeepSeek-V3.1 / Qwen3-32B / GLM-4.5 在 ModelScope 上
+   返回 "has no provider supported"，已移除。
+   除最后一个外都是 reasoning 模型：流式时先吐 reasoning_content，
+   content 要等思考结束才出现，所以下面标的是「首字正文」的实测延迟。 */
 const MODELS = [
-  "deepseek-ai/DeepSeek-V4-Flash-0731",
-  "Qwen/Qwen3.8-Flash-Next",
-  "Qwen/Qwen3-235B-A22B-Instruct-2507",
-  "deepseek-ai/DeepSeek-V3.1",
-  "Qwen/Qwen3-32B",
-  "ZhipuAI/GLM-4.5"
+  { id: "Qwen/Qwen3.8-Flash-Next",             note: "默认 · 首字 1.3s · 带思考" },
+  { id: "Qwen/Qwen3.8-27B",                    note: "更大 · 首字 4.3s · 带思考" },
+  { id: "deepseek-ai/DeepSeek-V4-Flash-0731",  note: "首字 1.8s · 带思考" },
+  { id: "Qwen/Qwen3-235B-A22B-Instruct-2507",  note: "不思考 · 首字 0.6s 最快" }
 ];
+const MODEL_IDS = MODELS.map(m => m.id);
 /* ------------------------------------------------------------------
    内置 token：混淆，不是加密。
    解码逻辑就在这个文件里，打开 DevTools 看 Network 的 Authorization 头
@@ -1041,7 +1057,9 @@ const QUOTA = {
 
 const LLM = {
   endpoint: "https://api-inference.modelscope.cn/v1/chat/completions",
-  model: localStorage.getItem("lyz.model") || MODELS[0],
+  /* 存过的模型若已下线，回退到默认，不然会一直报错 */
+  model: (MODEL_IDS.includes(localStorage.getItem("lyz.model") || "")
+          ? localStorage.getItem("lyz.model") : MODEL_IDS[0]),
   get own() { return localStorage.getItem("lyz.mskey") || ""; },
   get builtin() { return VAULT.open(); },
   get key() { return LLM.own || LLM.builtin; },
@@ -1161,6 +1179,7 @@ async function llmStream(messages, onDelta) {
     headers: { "Authorization": "Bearer " + LLM.key, "Content-Type": "application/json" },
     body: JSON.stringify({ model: LLM.model, messages, stream: true, temperature: .4, max_tokens: 1200 })
   });
+  if (res.status === 429) throw new Error("模型正在限流（429），稍等片刻再试，或用 model 换一个");
   if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text()).slice(0, 240));
   const reader = res.body.getReader(), dec = new TextDecoder();
   let buf = "";
@@ -1174,7 +1193,13 @@ async function llmStream(messages, onDelta) {
       if (!line.startsWith("data:")) continue;
       const d = line.slice(5).trim();
       if (d === "[DONE]") return;
-      try { const t = JSON.parse(d).choices?.[0]?.delta?.content; if (t) onDelta(t); } catch {}
+      /* reasoning 模型（Qwen3.8-Flash-Next / DeepSeek-V4-Flash）会先流式吐
+         reasoning_content，此时 content 一直是空串。两者都要接出来，否则
+         页面在模型思考的那一两秒里完全没有反馈。 */
+      try {
+        const delta = JSON.parse(d).choices?.[0]?.delta;
+        if (delta) onDelta(delta.content || "", delta.reasoning_content || "");
+      } catch {}
     }
   }
 }
@@ -1369,9 +1394,10 @@ async function runAgent(userMsg, sub) {
   if (!LLM.own) QUOTA.bump();
   setBusy(true, "THINKING");
   const turn = turns() + 1;
-  const box = mod("AI", `<div class="steps"></div><div class="ans lead"></div>`, {
+  const box = mod("AI", `<div class="steps"></div><div class="think-slot"></div><div class="ans lead"></div>`, {
     kind: "ai", sub, meta: `turn ${turn} · ${LLM.model.split("/").pop()}` });
   const steps = box.querySelector(".steps"), ans = box.querySelector(".ans");
+  const thinkSlot = box.querySelector(".think-slot");
   const t0 = Date.now(), frames = "▖▘▝▗";
   let spinTick = 0;
   const spinner = label => `<span class="spin">${frames[spinTick++ % 4]}</span> <span class="dimtxt">${label}</span>`;
@@ -1383,18 +1409,40 @@ async function runAgent(userMsg, sub) {
     for (let step = 1; step <= AGENT_MAX_STEPS + 1; step++) {
       const msgs = [{ role: "system", content: sysPrompt() },
                     ...CHAT, { role: "user", content: userMsg }, ...hop];
-      let acc = "", isTool = null, got = false;
+      let acc = "", isTool = null, got = false, think = "";
+      let thinkEl = null;
+      const showThink = () => {
+        if (!thinkEl) {
+          thinkEl = document.createElement("div");
+          thinkEl.className = "think";
+          thinkEl.innerHTML = `<span class="think-head">▚ reasoning…</span><div class="think-body"></div>`;
+          thinkSlot.appendChild(thinkEl);
+        }
+        thinkEl.querySelector(".think-body").textContent = think.slice(-400);
+        scroll();
+      };
+      const sealThink = () => {
+        if (!thinkEl) return;
+        thinkEl.classList.add("done");
+        thinkEl.querySelector(".think-head").textContent = `▚ 思考了 ${think.length} 字（点击展开）`;
+        thinkEl.querySelector(".think-body").textContent = think;
+        thinkEl.onclick = () => thinkEl.classList.toggle("open");
+      };
       const label = step === 1
         ? (turn > 1 ? `continuing ${turns()}-turn context…` : "thinking…")
         : "reading tool output…";
       ans.innerHTML = spinner(label);
-      tick = setInterval(() => { if (!got) ans.innerHTML = spinner(label); }, 110);
+      tick = setInterval(() => {
+        if (!got) ans.innerHTML = spinner(think ? `reasoning… ${think.length} 字` : label);
+      }, 110);
 
       /* finally 是必须的：请求抛错时若不停掉这个定时器，它会每 110ms
          把 spinner 重新写回去，把 catch 里渲染的错误信息冲掉。 */
       try {
-        await llmStream(msgs, t => {
-          if (!got) { got = true; if (!ttft) ttft = Date.now() - t0; }
+        await llmStream(msgs, (t, rz) => {
+          if (rz) { think += rz; showThink(); }
+          if (!t) return;
+          if (!got) { got = true; if (!ttft) ttft = Date.now() - t0; sealThink(); }
           acc += t;
           /* 工具调用必须出现在回复开头，所以只要前几个字符不是 "<tool>" 的前缀，
              就能立刻确定这是普通回答，继续流式渲染，不牺牲首字延迟。 */
@@ -1405,7 +1453,7 @@ async function runAgent(userMsg, sub) {
           }
           if (isTool === false) { ans.innerHTML = esc(acc).replace(/\n/g, "<br>"); scroll(); }
         });
-      } finally { clearInterval(tick); tick = null; }
+      } finally { clearInterval(tick); tick = null; sealThink(); }
 
       if (!isTool) { final = acc; break; }
 
@@ -1831,8 +1879,11 @@ def("reset", { desc: "清空 AI 对话上下文", group: "ai" }, () => {
 def("model", { desc: "切换模型", usage: "model <name>", group: "ai" }, args => {
   if (!args[0]) return mod("MODEL", `current: <span class="b acc">${esc(LLM.model)}</span>
     <div class="band">AVAILABLE ON MODELSCOPE</div>
-    ${MODELS.map(m => `<div><span class="act" data-cmd="model ${m}">${m}</span>${
-      m === LLM.model ? ' <span class="ok">← current</span>' : ""}</div>`).join("")}
+    ${MODELS.map(m => `<div style="display:flex;gap:10px;align-items:baseline">
+      <span class="act" data-cmd="model ${m.id}" style="min-width:280px">${m.id}</span>
+      <span class="dimtxt" style="font-size:11.5px">${m.note}</span>
+      ${m.id === LLM.model ? '<span class="ok" style="font-size:11.5px">← current</span>' : ""}
+    </div>`).join("")}
     <div class="dimtxt" style="margin-top:8px;font-size:12px">任何 ModelScope Model-Id 都能用：<span class="b">model &lt;org/name&gt;</span></div>`,
     { kind: "sys" });
   LLM.model = args[0]; localStorage.setItem("lyz.model", args[0]); updateLLMStatus();
