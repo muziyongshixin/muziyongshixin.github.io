@@ -281,6 +281,29 @@ try {
   if (window.document.body.classList.contains("busy")) fail("坏工具调用后仍停留在 busy 状态");
 } catch (e) { fail(`坏工具调用抛错：${e.message}`); }
 
+/* 6c-2. 默认应关闭思考：请求体里必须带 enable_thinking:false */
+try {
+  queue = ["随便回一句"]; sent = [];
+  T.exec("检查请求参数");
+  await sleep(400);
+  const body = sent[0];
+  if (!body) fail("没有捕获到请求体");
+  else {
+    if (body.enable_thinking !== false) fail("默认没有关闭思考（缺 enable_thinking:false）");
+    if (body.chat_template_kwargs?.enable_thinking !== false)
+      fail("默认没有下发 chat_template_kwargs.enable_thinking:false");
+  }
+  /* think on 之后应当不再下发关闭参数 */
+  T.exec("think on");
+  await sleep(40);
+  queue = ["再回一句"]; sent = [];
+  T.exec("开了思考再问一次");
+  await sleep(400);
+  if (sent[0] && "enable_thinking" in sent[0]) fail("think on 之后仍然下发了 enable_thinking");
+  T.exec("think off");
+  await sleep(40);
+} catch (e) { fail(`思考开关检查抛错：${e.message}`); }
+
 /* 6d. reasoning 模型：思考先到、正文后到，两者都要正确落地 */
 try {
   window.localStorage.removeItem("lyz.quota");

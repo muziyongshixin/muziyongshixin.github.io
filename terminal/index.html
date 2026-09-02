@@ -1173,11 +1173,22 @@ ${agentEnabled ? toolsPrompt() : ""}
 ${knowledge()}
 </资料>`;
 
+/* 思考默认关闭：实测 Qwen3.8-27B 开着思考首字要 17.4s，关掉只要 1.0s；
+   Flash 系列也能从 1.4s 降到 0.8s。两种写法一起发，覆盖不同推理后端
+   （顶层 enable_thinking 与 vLLM 的 chat_template_kwargs），四个模型都接受，
+   不支持的会直接忽略。注意 reasoning_effort=low 反而会让思考变长，别用。 */
+let thinking = localStorage.getItem("lyz.think") === "on";
+
 async function llmStream(messages, onDelta) {
+  const payload = { model: LLM.model, messages, stream: true, temperature: .4, max_tokens: 1200 };
+  if (!thinking) {
+    payload.enable_thinking = false;
+    payload.chat_template_kwargs = { enable_thinking: false };
+  }
   const res = await fetch(LLM.endpoint, {
     method: "POST",
     headers: { "Authorization": "Bearer " + LLM.key, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: LLM.model, messages, stream: true, temperature: .4, max_tokens: 1200 })
+    body: JSON.stringify(payload)
   });
   if (res.status === 429) throw new Error("模型正在限流（429），稍等片刻再试，或用 model 换一个");
   if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text()).slice(0, 240));
@@ -1865,6 +1876,37 @@ def("agent", { desc: "工具调用开关 / 查看工具", usage: "agent [on|off]
       <button class="chip" data-cmd="agent ${agentEnabled ? "off" : "on"}">${agentEnabled ? "关闭工具调用" : "开启工具调用"}</button>
       <button class="chip" data-cmd="ask 2026 年视频生成加速方面有哪些新论文？">试一个需要联网的问题</button>
     </div>`, { kind: "sys", meta: `${Object.keys(TOOLS).length} tools` });
+});
+
+def("think", { desc: "深度思考开关（默认关）", usage: "think [on|off]", group: "ai" }, args => {
+  if (args[0] === "on" || args[0] === "off") {
+    thinking = args[0] === "on";
+    localStorage.setItem("lyz.think", args[0]);
+    return mod("THINKING", `<span class="ok">✓ 深度思考已${thinking ? "开启" : "关闭"}</span>
+      <div class="dimtxt" style="margin-top:6px;font-size:12.5px">${thinking
+        ? "模型会先推理再作答，复杂问题质量更好，但首字要多等一会儿。"
+        : '模型直接作答，响应更快。复杂问题想要更严谨的推理就开 <span class="b">think on</span>。'}</div>`,
+      { kind: "sys" });
+  }
+  mod("THINKING", `
+    <div class="kv" style="margin-bottom:10px">
+      <span class="k">STATUS</span><span class="${thinking ? "amb" : "ok"}">${thinking ? "开启（较慢）" : "关闭（默认，更快）"}</span>
+      <span class="k">MODEL</span><span>${esc(LLM.model)}</span>
+    </div>
+    <div class="dimtxt" style="font-size:12.5px;line-height:1.75">
+      本站默认关闭模型的思考过程，用 <span class="b">enable_thinking: false</span> 请求。
+      下面是四个模型开关思考时的首字延迟实测：
+    </div>
+    <div class="band">FIRST TOKEN LATENCY</div>
+    <div class="kv" style="font-size:12.5px">
+      <span class="k">Qwen3.8-Flash</span><span>1.4s <span class="dimtxt">→</span> <span class="ok">0.8s</span></span>
+      <span class="k">Qwen3.8-27B</span><span>17.4s <span class="dimtxt">→</span> <span class="ok">1.0s</span></span>
+      <span class="k">DeepSeek-V4-Flash</span><span>1.7s <span class="dimtxt">→</span> <span class="ok">1.4s</span></span>
+      <span class="k">Qwen3-235B</span><span>0.6s <span class="dimtxt">·</span> 本就不思考</span>
+    </div>
+    <div class="chips" style="margin-top:11px">
+      <button class="chip" data-cmd="think ${thinking ? "off" : "on"}">${thinking ? "关闭思考（更快）" : "开启思考（更严谨）"}</button>
+    </div>`, { kind: "sys" });
 });
 
 def("reset", { desc: "清空 AI 对话上下文", group: "ai" }, () => {

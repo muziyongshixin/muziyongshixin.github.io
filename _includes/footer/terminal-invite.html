@@ -64,33 +64,4 @@
 @media (prefers-reduced-motion: reduce) { #lyz-invite { transition: none; } }
 </style>
 
-<script>
-(function () {
-  var KEY = "lyz.invite.dismissed";
-  var HIDE_DAYS = 30;
-  var el = document.getElementById("lyz-invite");
-  if (!el) return;
-  // 已经在终端版里，或最近关闭过，就不再提示
-  if (location.pathname.indexOf("/terminal") === 0) return;
-  try {
-    var until = parseInt(localStorage.getItem(KEY) || "0", 10);
-    if (until && Date.now() < until) return;
-  } catch (e) {}
-
-  function dismiss() {
-    el.classList.remove("lyz-show");
-    setTimeout(function () { el.hidden = true; }, 320);
-    try { localStorage.setItem(KEY, String(Date.now() + HIDE_DAYS * 864e5)); } catch (e) {}
-  }
-  el.querySelector(".lyz-invite-x").addEventListener("click", dismiss);
-  el.querySelector(".lyz-invite-later").addEventListener("click", dismiss);
-  el.querySelector(".lyz-invite-go").addEventListener("click", function () {
-    try { localStorage.setItem(KEY, String(Date.now() + HIDE_DAYS * 864e5)); } catch (e) {}
-  });
-
-  setTimeout(function () {
-    el.hidden = false;
-    requestAnimationFrame(function () { el.classList.add("lyz-show"); });
-  }, 1800);
-})();
-</script>
+<script src="/terminal/invite.js" defer></script>

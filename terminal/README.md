@@ -76,10 +76,24 @@ GitHub 密钥扫描和批量爬虫的正则匹配，那才是明文 token 最常
 | `deepseek-ai/DeepSeek-V4-Flash-0731` | 1.8s | 带思考 |
 | `Qwen/Qwen3-235B-A22B-Instruct-2507` | 0.6s | 不思考，最快 |
 
-前三个是 reasoning 模型：流式时先吐 `reasoning_content`，`content` 要等思考结束
-才出现。前端两路都接，思考过程实时显示在灰色区域里，正文一到就折叠成
-「思考了 N 字」，点击可展开。**只接 `content` 会导致模型思考的那一两秒页面完全没有反馈。**
-思考内容不写入对话历史。
+前三个是 reasoning 模型。**站点默认关闭它们的思考**，请求里同时下发
+`enable_thinking: false` 与 `chat_template_kwargs: {enable_thinking: false}`
+（覆盖不同推理后端的写法，四个模型都接受，不支持的会忽略）。实测首字延迟：
+
+| 模型 | 默认 | 关思考 |
+| --- | --- | --- |
+| Qwen3.8-Flash-Next | 1.4s | **0.8s** |
+| Qwen3.8-27B | 17.4s | **1.0s** |
+| DeepSeek-V4-Flash | 1.7s | **1.4s** |
+
+27B 那一项差距最大，开着思考它会先写两百多字推理，首字要等 17 秒。
+
+访客可以用 `think on` 开启深度思考换取更严谨的推理。注意 `reasoning_effort: low`
+反而会让思考变长，prompt 里加 `/no_think` 更是适得其反（实测思考涨到 2000+ 字），
+都不要用。
+
+开启思考时，思考过程实时显示在灰色区域，正文一到就折叠成「思考了 N 字」，
+点击可展开；思考内容不写入对话历史。
 
 `DeepSeek-V3.1`、`Qwen3-32B`、`GLM-4.5` 在 ModelScope 上返回
 "has no provider supported"，已从列表移除；`LLM.model` 会校验 localStorage
