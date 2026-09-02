@@ -124,6 +124,12 @@ include:
   - _pages
   - files
 exclude:
+  # 终端版主页的构建脚本与源图不需要发布，产物在 terminal/ 下已就绪
+  - terminal/tools
+  - terminal/Makefile
+  - terminal/README.md
+  - terminal/node_modules
+  - terminal/package-lock.json
   - '*.sublime-project'
   - '*.sublime-workspace'
   - .asset-cache

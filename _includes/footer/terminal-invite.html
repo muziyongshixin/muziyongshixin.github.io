@@ -1,0 +1,96 @@
+<!-- 提示访客存在一个可交互的终端版主页；关闭后 30 天内不再打扰 -->
+<div id="lyz-invite" hidden>
+  <div class="lyz-invite-bar">
+    <span class="lyz-invite-dot"></span>
+    <span class="lyz-invite-tag">NEW</span>
+    <button class="lyz-invite-x" type="button" aria-label="关闭">×</button>
+  </div>
+  <div class="lyz-invite-body">
+    <div class="lyz-invite-title">这个主页还有一个<b>可以对话</b>的版本</div>
+    <p class="lyz-invite-text">
+      一个命令行式的交互主页：输入 <code>pub</code> 查论文、<code>exp</code> 看经历，
+      也可以直接向 AI 提问，它读过站内全部论文与博客，还能联网检索文献。
+    </p>
+    <div class="lyz-invite-actions">
+      <a class="lyz-invite-go" href="/terminal/">打开终端版 →</a>
+      <button class="lyz-invite-later" type="button">以后再说</button>
+    </div>
+  </div>
+</div>
+
+<style>
+#lyz-invite {
+  position: fixed; right: 20px; bottom: 20px; z-index: 9999; width: 328px; max-width: calc(100vw - 32px);
+  background: #1B1917; color: #E7E2D9; border: 1px solid #3A342E;
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, monospace;
+  opacity: 0; transform: translateY(14px); transition: opacity .32s ease, transform .32s ease;
+}
+#lyz-invite.lyz-show { opacity: 1; transform: none; }
+#lyz-invite::before {
+  content: ""; position: absolute; top: -1px; left: -1px; width: 8px; height: 8px;
+  border-left: 1px solid #D97757; border-top: 1px solid #D97757;
+}
+.lyz-invite-bar {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  background: #201D1A; border-bottom: 1px solid #302B26;
+}
+.lyz-invite-dot { width: 8px; height: 8px; background: #D97757; display: inline-block; }
+.lyz-invite-tag { font-size: 10px; letter-spacing: .18em; color: #C99B5E; flex: 1; }
+.lyz-invite-x {
+  background: none; border: 0; color: #7C756A; font-size: 17px; line-height: 1;
+  cursor: pointer; padding: 0 2px;
+}
+.lyz-invite-x:hover { color: #D97757; }
+.lyz-invite-body { padding: 12px 14px 14px; }
+.lyz-invite-title { font-size: 14px; margin-bottom: 7px; color: #E7E2D9; }
+.lyz-invite-title b { color: #D97757; font-weight: 600; }
+.lyz-invite-text { font-size: 12px; line-height: 1.65; color: #8C857A; margin: 0 0 12px; }
+.lyz-invite-text code {
+  background: rgba(217,119,87,.13); color: #D97757; padding: 0 4px;
+  font-family: inherit; font-size: 11.5px; border-radius: 0;
+}
+.lyz-invite-actions { display: flex; align-items: center; gap: 10px; }
+.lyz-invite-go {
+  background: #D97757; color: #14120F !important; border: 1px solid #D97757;
+  padding: 5px 13px; font-size: 12.5px; text-decoration: none !important; letter-spacing: .02em;
+}
+.lyz-invite-go:hover { background: #E28E6F; border-color: #E28E6F; }
+.lyz-invite-later {
+  background: none; border: 1px solid #3A342E; color: #7C756A;
+  padding: 5px 11px; font-size: 12px; cursor: pointer; font-family: inherit;
+}
+.lyz-invite-later:hover { color: #E7E2D9; border-color: #7C756A; }
+@media (max-width: 600px) { #lyz-invite { right: 12px; bottom: 12px; left: 12px; width: auto; } }
+@media (prefers-reduced-motion: reduce) { #lyz-invite { transition: none; } }
+</style>
+
+<script>
+(function () {
+  var KEY = "lyz.invite.dismissed";
+  var HIDE_DAYS = 30;
+  var el = document.getElementById("lyz-invite");
+  if (!el) return;
+  // 已经在终端版里，或最近关闭过，就不再提示
+  if (location.pathname.indexOf("/terminal") === 0) return;
+  try {
+    var until = parseInt(localStorage.getItem(KEY) || "0", 10);
+    if (until && Date.now() < until) return;
+  } catch (e) {}
+
+  function dismiss() {
+    el.classList.remove("lyz-show");
+    setTimeout(function () { el.hidden = true; }, 320);
+    try { localStorage.setItem(KEY, String(Date.now() + HIDE_DAYS * 864e5)); } catch (e) {}
+  }
+  el.querySelector(".lyz-invite-x").addEventListener("click", dismiss);
+  el.querySelector(".lyz-invite-later").addEventListener("click", dismiss);
+  el.querySelector(".lyz-invite-go").addEventListener("click", function () {
+    try { localStorage.setItem(KEY, String(Date.now() + HIDE_DAYS * 864e5)); } catch (e) {}
+  });
+
+  setTimeout(function () {
+    el.hidden = false;
+    requestAnimationFrame(function () { el.classList.add("lyz-show"); });
+  }, 1800);
+})();
+</script>

@@ -1,0 +1,2239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>yongzhi li — terminal</title>
+<style>
+/* ============================================================
+   TOKENS
+   ============================================================ */
+:root {
+  --bg:        #1B1917;
+  --bg-deep:   #131110;
+  --panel:     #201D1A;
+  --panel-2:   #262220;
+  --fg:        #E7E2D9;
+  --dim:       #7C756A;
+  --faint:     #4A443D;
+  --line:      #302B26;
+  --accent:    #D97757;
+  --amber:     #C99B5E;
+  --ok:        #85A67E;
+  --info:      #7B9AB5;
+  --violet:    #9B87B5;
+
+  --mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", "SF Mono", Menlo,
+          Consolas, "Liberation Mono", "Courier New", monospace;
+  --cell: 15px;
+  --side: 272px;
+}
+html[data-theme="light"] {
+  --bg:        #F2EFE8;
+  --bg-deep:   #E6E2D8;
+  --panel:     #EAE6DD;
+  --panel-2:   #E0DBD1;
+  --fg:        #24211E;
+  --dim:       #6E675E;
+  --faint:     #A8A196;
+  --line:      #D3CDC1;
+  --accent:    #BE5B37;
+  --amber:     #9C7734;
+  --ok:        #4F7A49;
+  --info:      #3F6785;
+  --violet:    #6E5A88;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg-deep); color: var(--fg);
+  font-family: var(--mono); font-size: var(--cell); line-height: 1.65;
+  overflow: hidden; -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--accent); color: var(--bg-deep); }
+a { color: var(--info); text-decoration: none; border-bottom: 1px solid transparent; }
+a:hover { border-bottom-color: var(--info); }
+
+/* ---- ambient layers ---- */
+#mosaic { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+#crt {
+  position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background: repeating-linear-gradient(180deg,
+    rgba(0,0,0,.16) 0px, rgba(0,0,0,.16) 1px, transparent 1px, transparent 3px);
+  opacity: .35; mix-blend-mode: multiply;
+}
+html[data-scan="off"] #crt { display: none; }
+html[data-theme="light"] #crt { opacity: .16; }
+#vig {
+  position: fixed; inset: 0; pointer-events: none; z-index: 9998;
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.5) 100%);
+}
+html[data-theme="light"] #vig { background: radial-gradient(ellipse at center, transparent 60%, rgba(120,110,95,.16) 100%); }
+
+/* ============================================================
+   FRAME
+   ============================================================ */
+#shell { position: relative; z-index: 1; height: 100vh; padding: 16px; }
+#win {
+  height: 100%; max-width: 1420px; margin: 0 auto;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border: 1px solid var(--line);
+  display: flex; flex-direction: column; position: relative;
+  backdrop-filter: blur(2px);
+}
+#win::before, #win::after {
+  content: ""; position: absolute; width: 8px; height: 8px;
+  border: 1px solid var(--accent); pointer-events: none; z-index: 3;
+}
+#win::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+#win::after  { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+#titlebar {
+  display: flex; align-items: center; gap: 10px; padding: 7px 12px;
+  border-bottom: 1px solid var(--line); background: var(--panel);
+  font-size: 12.5px; color: var(--dim); user-select: none; flex-shrink: 0;
+}
+.dots { display: flex; gap: 5px; }
+.dot { width: 9px; height: 9px; background: var(--faint); }
+.dot.a { background: var(--accent); animation: pulse 3.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+#title-path b { color: var(--fg); font-weight: 500; }
+.tb-spacer { flex: 1; }
+.tb-btn {
+  border: 1px solid var(--line); background: transparent; color: var(--dim);
+  font: inherit; font-size: 11.5px; padding: 2px 9px; cursor: pointer; letter-spacing: .04em;
+  transition: all .13s;
+}
+a.tb-btn { text-decoration: none; }
+.tb-btn:hover { color: var(--accent); border-color: var(--accent); }
+a.tb-btn:hover { border-bottom-color: var(--accent); }
+.tb-btn.on { color: var(--bg); background: var(--accent); border-color: var(--accent); }
+
+#body { flex: 1; min-height: 0; display: flex; }
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+#sidebar {
+  width: var(--side); flex-shrink: 0; border-right: 1px solid var(--line);
+  background: var(--panel); display: flex; flex-direction: column;
+  overflow-y: auto; scrollbar-width: thin;
+}
+#sidebar::-webkit-scrollbar { width: 7px; }
+#sidebar::-webkit-scrollbar-thumb { background: var(--line); }
+
+.sb-block { padding: 14px 14px; border-bottom: 1px solid var(--line); }
+.sb-label {
+  font-size: 10px; letter-spacing: .2em; color: var(--faint);
+  margin-bottom: 9px; display: flex; align-items: center; gap: 7px;
+}
+.sb-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* --- cube --- */
+.cube-row { display: flex; align-items: center; gap: 14px; }
+.cube-stage { width: 58px; height: 58px; flex-shrink: 0; perspective: 260px; }
+.cube { width: 34px; height: 34px; margin: 12px; position: relative; transform-style: preserve-3d; }
+.cube i {
+  position: absolute; inset: 0; border: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.cube i:nth-child(1) { transform: translateZ(17px); }
+.cube i:nth-child(2) { transform: rotateY(180deg) translateZ(17px); }
+.cube i:nth-child(3) { transform: rotateY(90deg)  translateZ(17px); border-color: var(--amber); }
+.cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(17px); border-color: var(--amber); }
+.cube i:nth-child(5) { transform: rotateX(90deg)  translateZ(17px); border-color: var(--violet); }
+.cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(17px); border-color: var(--violet); }
+.cube-cap { font-size: 10.5px; color: var(--dim); line-height: 1.5; }
+.cube-cap b { color: var(--fg); font-weight: 500; display: block; font-size: 12px; }
+
+/* --- avatar --- */
+.ava-wrap { position: relative; width: 84%; margin: 0 auto; aspect-ratio: 3/4; overflow: hidden;
+            border: 1px solid var(--line); cursor: crosshair; }
+#avatar { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+.ava-wrap::after {
+  content: ""; position: absolute; left: 0; right: 0; height: 22px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 22%, transparent), transparent);
+  animation: sweep 5.5s linear infinite; pointer-events: none;
+}
+@keyframes sweep { 0% { top: -22px; } 100% { top: 100%; } }
+.ava-frame { position: absolute; inset: 0; pointer-events: none; }
+.ava-frame span { position: absolute; width: 9px; height: 9px; border: 1px solid var(--accent); }
+.ava-frame span:nth-child(1) { top: 4px; left: 4px; border-right: 0; border-bottom: 0; }
+.ava-frame span:nth-child(2) { top: 4px; right: 4px; border-left: 0; border-bottom: 0; }
+.ava-frame span:nth-child(3) { bottom: 4px; left: 4px; border-right: 0; border-top: 0; }
+.ava-frame span:nth-child(4) { bottom: 4px; right: 4px; border-left: 0; border-top: 0; }
+.ava-mode {
+  position: absolute; bottom: 5px; right: 5px; font-size: 9px; letter-spacing: .16em;
+  color: var(--bg-deep); background: var(--accent); padding: 1px 5px; opacity: 0;
+  transition: opacity .15s; pointer-events: none;
+}
+.ava-wrap:hover .ava-mode { opacity: 1; }
+
+/* pixel avatar embedded in the output stream */
+.pix-inline { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 13px; }
+.pix-inline canvas { width: 132px; aspect-ratio: 3/4; image-rendering: pixelated;
+                     border: 1px solid var(--line); flex-shrink: 0; }
+.pix-big { width: 246px; aspect-ratio: 3/4; image-rendering: pixelated; border: 1px solid var(--line); }
+
+.ident { margin-top: 10px; }
+.ident .nm { font-size: 14px; color: var(--fg); }
+.ident .rl { font-size: 11.5px; color: var(--accent); }
+.ident .og { font-size: 11px; color: var(--dim); line-height: 1.45; margin-top: 2px; }
+.ident .st { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--ok); margin-top: 6px; }
+.ident .st i { width: 6px; height: 6px; background: var(--ok); animation: pulse 2s infinite; }
+
+/* --- hint box --- */
+.hint {
+  border: 1px dashed var(--line); border-left: 2px solid var(--amber);
+  padding: 8px 10px; font-size: 11.5px; color: var(--dim); line-height: 1.6;
+  background: color-mix(in srgb, var(--amber) 5%, transparent); min-height: 68px;
+}
+.hint .h-t { color: var(--amber); font-size: 10px; letter-spacing: .16em; display: block; margin-bottom: 3px; }
+.hint .h-b { color: var(--fg); }
+.hint code { color: var(--accent); }
+
+/* --- command list --- */
+.cmd-group { margin-bottom: 11px; }
+.cmd-group > .g { font-size: 9.5px; letter-spacing: .2em; color: var(--faint); margin-bottom: 3px; }
+.cmd-item {
+  display: flex; align-items: baseline; gap: 7px; padding: 1.5px 7px;
+  cursor: pointer; border-left: 2px solid transparent; margin-left: -7px;
+  transition: background .1s, border-color .1s;
+}
+.cmd-item:hover { background: var(--panel-2); border-left-color: var(--accent); }
+.cmd-item .c { color: var(--fg); font-size: 12.5px; }
+.cmd-item:hover .c { color: var(--accent); }
+.cmd-item .d { color: var(--faint); font-size: 10.5px; overflow: hidden;
+               text-overflow: ellipsis; white-space: nowrap; }
+.cmd-item.active { background: var(--panel-2); border-left-color: var(--accent); }
+
+.sb-foot { padding: 11px 14px; font-size: 10.5px; color: var(--faint); line-height: 1.7; }
+.sb-foot a { color: var(--dim); }
+.sb-foot a:hover { color: var(--accent); }
+
+/* ============================================================
+   MAIN
+   ============================================================ */
+#main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#viewport { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; }
+#viewport::-webkit-scrollbar { width: 9px; }
+#viewport::-webkit-scrollbar-track { background: transparent; }
+#viewport::-webkit-scrollbar-thumb { background: var(--line); border: 2px solid var(--bg); }
+#stream { padding: 20px 24px 10px; }
+
+/* ---- echo line ---- */
+.echo { color: var(--dim); margin: 22px 0 9px; display: flex; align-items: center; gap: 8px; }
+.echo:first-child { margin-top: 0; }
+.echo .ps { color: var(--accent); }
+.echo .cmd { color: var(--fg); }
+.echo .rule { flex: 1; height: 1px; background: repeating-linear-gradient(90deg,
+              var(--line) 0 3px, transparent 3px 6px); }
+
+/* ============================================================
+   MODULE  —  强区分的输出容器
+   ============================================================ */
+.mod {
+  border: 1px solid var(--line); border-left: 3px solid var(--k);
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  margin-bottom: 16px; --k: var(--accent);
+  animation: modin .26s cubic-bezier(.2,.7,.3,1);
+}
+.mod[data-kind="meta"]   { --k: var(--amber); }
+.mod[data-kind="ai"]     { --k: var(--violet); }
+.mod[data-kind="sys"]    { --k: var(--info); }
+.mod[data-kind="alert"]  { --k: var(--accent); }
+@keyframes modin { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+
+.mod-bar {
+  display: flex; align-items: center; gap: 10px;
+  background: color-mix(in srgb, var(--k) 10%, transparent);
+  border-bottom: 1px solid var(--line); padding: 0 10px 0 0;
+}
+.mod-tag {
+  background: var(--k); color: var(--bg-deep); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .17em; padding: 3px 11px; white-space: nowrap;
+}
+.mod-sub { font-size: 11.5px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mod-meta { margin-left: auto; font-size: 10.5px; color: var(--faint); letter-spacing: .1em; white-space: nowrap; }
+.mod-body { padding: 13px 15px; }
+.mod-body > :last-child { margin-bottom: 0; }
+
+/* year band inside a module */
+.band {
+  display: flex; align-items: center; gap: 9px; margin: 14px 0 7px;
+  font-size: 11px; letter-spacing: .16em; color: var(--amber);
+}
+.band:first-child { margin-top: 0; }
+.band::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+/* ---- text utils ---- */
+.dimtxt { color: var(--dim); } .acc { color: var(--accent); } .amb { color: var(--amber); }
+.ok { color: var(--ok); } .inf { color: var(--info); } .vio { color: var(--violet); }
+.b { color: var(--fg); font-weight: 600; } .err { color: var(--accent); }
+.lead { font-size: 14px; max-width: 76ch; }
+
+.kv { display: grid; grid-template-columns: 118px 1fr; gap: 3px 14px; font-size: 13.5px; }
+.kv .k { color: var(--faint); font-size: 11.5px; letter-spacing: .08em; padding-top: 2px; }
+
+.tag { display: inline-block; border: 1px solid var(--line); color: var(--dim);
+       font-size: 10.5px; padding: 0 6px; margin: 0 4px 3px 0; line-height: 17px; }
+.venue { display: inline-block; background: var(--accent); color: var(--bg-deep);
+         font-size: 10.5px; font-weight: 700; padding: 0 8px; line-height: 18px; letter-spacing: .06em; }
+.venue.old { background: var(--faint); color: var(--bg); }
+.venue.pre { background: transparent; color: var(--violet); border: 1px solid var(--violet);
+             line-height: 16px; font-weight: 600; }
+.cites { color: var(--amber); font-size: 10.5px; letter-spacing: .05em; }
+.oral { display: inline-block; border: 1px solid var(--amber); color: var(--amber);
+        font-size: 10.5px; padding: 0 6px; line-height: 16px; }
+
+.act { color: var(--info); cursor: pointer; border-bottom: 1px dotted var(--info); }
+.act:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ---- card ---- */
+.card {
+  display: flex; gap: 12px; padding: 9px 12px 9px 10px; margin-bottom: 5px;
+  border: 1px solid transparent; border-left: 2px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 45%, transparent);
+  transition: all .13s; animation: cardin .3s backwards;
+}
+@keyframes cardin { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.card:hover { border-color: var(--line); border-left-color: var(--accent);
+              background: var(--panel-2); transform: translateX(2px); }
+.card .idx { color: var(--faint); font-size: 17px; line-height: 1.25; min-width: 24px; }
+.card:hover .idx { color: var(--accent); }
+.card .body { flex: 1; min-width: 0; }
+.card .t { color: var(--fg); font-size: 13.8px; line-height: 1.45; }
+.card .m { color: var(--dim); font-size: 12px; }
+
+/* ---- timeline ---- */
+.tl { position: relative; padding-left: 22px; }
+.tl::before { content: ""; position: absolute; left: 4px; top: 8px; bottom: 8px; width: 1px;
+              background: linear-gradient(180deg, var(--accent), var(--line)); }
+.tl-item { position: relative; margin-bottom: 15px; }
+.tl-item::before { content: ""; position: absolute; left: -21px; top: 8px;
+                   width: 7px; height: 7px; background: var(--faint); }
+.tl-item.now::before { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+.tl-when { color: var(--faint); font-size: 11px; letter-spacing: .09em; }
+.tl-role { color: var(--fg); font-size: 14px; }
+.tl-org { color: var(--accent); font-size: 13px; }
+.tl-item ul { margin: 4px 0 0 15px; color: var(--dim); font-size: 12.5px; line-height: 1.65; }
+
+/* ---- first-screen onboarding ---- */
+.intro-big { font-size: 21px; line-height: 1.4; color: var(--fg); margin-bottom: 6px; letter-spacing: -.01em; }
+.intro-sub { color: var(--dim); font-size: 13.5px; max-width: 70ch; margin-bottom: 16px; }
+.howto { display: grid; grid-template-columns: repeat(auto-fit, minmax(206px, 1fr));
+         gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 16px; }
+.how { background: var(--bg); padding: 12px 14px; transition: background .13s; }
+.how:hover { background: var(--panel); }
+.how-n { color: var(--accent); font-size: 19px; line-height: 1; margin-bottom: 6px; }
+.how-t { color: var(--fg); font-size: 13.5px; margin-bottom: 4px; }
+.how-d { color: var(--dim); font-size: 12px; line-height: 1.65; }
+code { color: var(--accent); background: color-mix(in srgb, var(--accent) 11%, transparent);
+       padding: 0 4px; font-size: .93em; }
+.point-down {
+  display: flex; align-items: center; gap: 9px; margin-top: 15px;
+  color: var(--amber); font-size: 12.5px; letter-spacing: .04em;
+}
+.point-down .arw { animation: nudge 1.5s ease-in-out infinite; font-size: 15px; }
+@keyframes nudge { 0%,100% { transform: translateY(0); opacity: .55; } 50% { transform: translateY(4px); opacity: 1; } }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.big { font-size: 13px; padding: 6px 15px; border-color: var(--faint); color: var(--fg); }
+.chip.big:hover { color: var(--bg); }
+.chip { border: 1px solid var(--line); color: var(--dim); background: transparent;
+        font: inherit; font-size: 12px; padding: 3px 11px; cursor: pointer; transition: all .12s; }
+.chip:hover { color: var(--bg); background: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
+
+pre.ascii { color: var(--accent); font-size: 11px; line-height: 1.12; white-space: pre; overflow-x: auto; }
+pre.bib { color: var(--fg); white-space: pre-wrap; font-size: 12.5px;
+          border: 1px solid var(--line); border-left: 2px solid var(--amber);
+          padding: 9px 12px; background: var(--panel); }
+
+/* ============================================================
+   PROMPT
+   ============================================================ */
+#promptbar { display: flex; align-items: center; gap: 8px; padding: 11px 24px;
+             border-top: 1px solid var(--line); background: var(--panel); flex-shrink: 0; }
+#ps1 { color: var(--accent); white-space: nowrap; font-size: 14px; }
+#ps1 .host { color: var(--faint); }
+#inputwrap { flex: 1; position: relative; display: flex; align-items: center; }
+#cmdline { width: 100%; background: transparent; border: 0; outline: 0; color: var(--fg);
+           font: inherit; caret-color: transparent; }
+#cmdline::placeholder { color: var(--faint); opacity: 1; transition: opacity .25s; }
+#promptbar.hushed #cmdline::placeholder { opacity: 0; }
+#ghost { position: absolute; left: 0; top: 0; color: var(--faint); pointer-events: none; white-space: pre; }
+#caret { position: absolute; top: 50%; transform: translateY(-50%); width: 8px; height: 17px;
+         background: var(--accent); animation: blink 1.05s steps(1) infinite; pointer-events: none; }
+@keyframes blink { 0%,50% { opacity: 1; } 50.01%,100% { opacity: 0; } }
+body.busy #caret { animation: none; opacity: .28; }
+
+#statusbar { display: flex; align-items: center; gap: 16px; padding: 4px 12px;
+             border-top: 1px solid var(--line); background: var(--panel-2); color: var(--faint);
+             font-size: 11px; flex-shrink: 0; letter-spacing: .04em; }
+#statusbar .live { color: var(--ok); }
+.sb-spacer { flex: 1; }
+.spin { color: var(--accent); }
+
+/* ---- agent tool calls ---- */
+.tool { border: 1px solid var(--line); border-left: 2px solid var(--info);
+        background: color-mix(in srgb, var(--info) 5%, transparent);
+        margin-bottom: 7px; padding: 7px 11px; animation: modin .2s; }
+.tool[data-state="done"] { border-left-color: var(--ok); }
+.tool-head { display: flex; align-items: baseline; gap: 9px; font-size: 12px; flex-wrap: wrap; }
+.tool-ic { color: var(--info); }
+.tool[data-state="done"] .tool-ic { color: var(--ok); }
+.tool-name { color: var(--fg); letter-spacing: .04em; }
+.tool-arg { color: var(--dim); font-size: 11.5px; flex: 1; min-width: 0;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-time { color: var(--faint); font-size: 10.5px; }
+.tool-out { color: var(--dim); font-size: 11.5px; line-height: 1.6; white-space: pre-wrap;
+            margin-top: 5px; overflow-wrap: anywhere; }
+.tool-out:empty { display: none; }
+.tool-out.clip { max-height: 66px; overflow: hidden;
+                 mask-image: linear-gradient(180deg, #000 55%, transparent); }
+
+/* ============================================================
+   READER
+   ============================================================ */
+#reader { position: fixed; inset: 0; z-index: 500; background: var(--bg-deep); display: none; overflow-y: auto; }
+#reader.show { display: block; animation: fadein .2s; }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+.rd-wrap { max-width: 960px; margin: 0 auto; padding: 54px 26px 90px; }
+.rd-top { position: sticky; top: 0; z-index: 10; background: var(--bg-deep);
+          border-bottom: 1px solid var(--line); margin: -54px -26px 34px; padding: 11px 26px;
+          display: flex; align-items: center; gap: 18px; font-size: 12.5px; }
+.rd-top nav { display: flex; gap: 14px; flex-wrap: wrap; }
+.rd-top nav a { color: var(--dim); border: 0; cursor: pointer; }
+.rd-top nav a:hover { color: var(--accent); }
+.rd-hero { display: flex; gap: 26px; align-items: flex-start; margin-bottom: 34px; flex-wrap: wrap; }
+.rd-hero img { width: 132px; height: 132px; object-fit: cover; border: 1px solid var(--line); image-rendering: auto; }
+.rd-h1 { font-size: 27px; line-height: 1.25; margin-bottom: 8px; }
+.rd-sub { color: var(--dim); max-width: 66ch; font-size: 14px; }
+.rd-sec { margin-bottom: 44px; scroll-margin-top: 70px; }
+.rd-sec > h2 { font-size: 12px; letter-spacing: .18em; color: var(--accent); font-weight: 600;
+               margin-bottom: 14px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.rd-p { color: var(--fg); margin-bottom: 12px; max-width: 72ch; font-size: 14px; line-height: 1.75; }
+.rd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); gap: 8px; }
+.stat { border: 1px solid var(--line); border-top: 2px solid var(--accent); padding: 11px 13px; }
+.stat .n { color: var(--accent); font-size: 22px; }
+.stat .l { color: var(--faint); font-size: 10.5px; letter-spacing: .11em; }
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+#btn-menu { display: none; }
+@media (max-width: 960px) {
+  #shell { padding: 0; }
+  #win { border: 0; }
+  #win::before, #win::after { display: none; }
+  #btn-menu { display: inline-block; }
+  #sidebar { position: absolute; top: 34px; bottom: 0; left: 0; z-index: 20;
+             transform: translateX(-100%); transition: transform .2s; }
+  #sidebar.open { transform: none; }
+  #stream { padding: 14px 13px 6px; }
+  #promptbar { padding: 10px 13px; }
+  pre.ascii { font-size: 6.2px; }
+  .kv { grid-template-columns: 90px 1fr; }
+}
+</style>
+</head>
+<body>
+<canvas id="mosaic"></canvas>
+<div id="vig"></div>
+<div id="crt"></div>
+
+<div id="shell"><div id="win">
+
+  <div id="titlebar">
+    <div class="dots"><i class="dot a"></i><i class="dot"></i><i class="dot"></i></div>
+    <button class="tb-btn" id="btn-menu">MENU</button>
+    <span id="title-path"><b>yongzhi</b>@liyongzhi.xyz : ~/portfolio</span>
+    <span class="tb-spacer"></span>
+    <a class="tb-btn" id="btn-classic" href="/" title="回到传统版个人主页">← CLASSIC SITE</a>
+    <button class="tb-btn" id="btn-reader">READER</button>
+    <button class="tb-btn" id="btn-scan">FX</button>
+    <button class="tb-btn" id="btn-theme">DARK</button>
+  </div>
+
+  <div id="body">
+
+    <aside id="sidebar">
+      <div class="sb-block">
+        <div class="cube-row">
+          <div class="cube-stage"><div class="cube" id="cube">
+            <i></i><i></i><i></i><i></i><i></i><i></i>
+          </div></div>
+          <div class="cube-cap"><b>PORTFOLIO OS</b>v2.0 · interactive résumé</div>
+        </div>
+      </div>
+
+      <div class="sb-block">
+        <div class="ava-wrap" id="avaWrap" title="点击切换渲染模式">
+          <canvas id="avatar"></canvas>
+          <div class="ava-frame"><span></span><span></span><span></span><span></span></div>
+          <div class="ava-mode" id="avaMode">DUOTONE</div>
+        </div>
+        <div class="ident">
+          <div class="nm">李勇志 · Yongzhi Li</div>
+          <div class="rl">AIGC Technical Leader</div>
+          <div class="og">Kuaishou · Commercialization<br>PKU M.S. · WHU B.S.</div>
+          <div class="st"><i></i> AVAILABLE FOR COLLAB</div>
+        </div>
+      </div>
+
+      <div class="sb-block">
+        <div class="sb-label">HINT</div>
+        <div class="hint" id="hintbox"></div>
+      </div>
+
+      <div class="sb-block" style="flex:1">
+        <div class="sb-label">COMMANDS</div>
+        <div id="cmdlist"></div>
+      </div>
+
+      <div class="sb-foot" id="sbfoot"></div>
+    </aside>
+
+    <main id="main">
+      <div id="viewport"><div id="stream"></div></div>
+      <div id="promptbar">
+        <span id="ps1">visitor@yongzhi <span class="host">~</span> $</span>
+        <div id="inputwrap">
+          <div id="ghost"></div>
+          <input id="cmdline" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
+          <div id="caret"></div>
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <div id="statusbar">
+    <span id="sb-state">READY</span>
+    <span id="sb-llm">LLM: not configured</span>
+    <span id="sb-ctx">CTX: empty</span>
+    <span id="sb-agent">AGENT: off</span>
+    <span class="sb-spacer"></span>
+    <span>TAB complete</span><span>↑↓ history</span><span>^L clear</span>
+  </div>
+
+</div></div>
+
+<div id="reader"><div class="rd-wrap" id="rd-body"></div></div>
+
+<script src="assets/avatar.js"></script>
+<script src="assets/content.js"></script>
+<script src="assets/papers.js"></script>
+<script>
+/* ============================================================
+   1. CONTENT
+   ============================================================ */
+const PROFILE = {
+  name: "李勇志 (Yongzhi Li)", handle: "yongzhi",
+  role: "AIGC Technical Leader", org: "Kuaishou · Commercialization Algorithm Dept.",
+  location: "Beijing, China", email: "yongzhili@pku.edu.cn", wechat: "lyz327067530",
+  github: "https://github.com/muziyongshixin",
+  scholar: "https://scholar.google.com.hk/citations?user=LKvjDSgAAAAJ&hl=zh-CN",
+  linkedin: "https://www.linkedin.com/in/%E5%8B%87%E5%BF%97-%E6%9D%8E-754894189/",
+  site: "https://liyongzhi.xyz",
+  bio: "AIGC technical leader at Kuaishou, working on commercial AdsLLM and AI Agents. Recent work focuses on multimodal generation, large language models, generative recommendation, advertisement video creation, and efficient deployment of large-scale AIGC systems.",
+  advisor: { name: "Prof. Yadong Mu", url: "http://www.muyadong.com" },
+  /* 唯一一处不来自结构化数据的展示数字，放在这里而不是埋在模板里 */
+  impact: { value: "100k+", label: "AI ADS GENERATED / DAY" },
+  avatar: "assets/profile.jpg"
+};
+
+const EDUCATION = [
+  { school: "Peking University", degree: "M.S., Data Science (CS & Technology)", when: "2018 – 2021", note: "Advised by Prof. Yadong Mu" },
+  { school: "Wuhan University", degree: "B.S., Computer Science & Technology", when: "2014 – 2018", note: "GPA 3.83/4.0 · Rank 1/38 · CET-6 571" }
+];
+
+const EXPERIENCE = [
+  { when: "2025.01 – Present", role: "AIGC Technical Leader", org: "Kuaishou · Commercialization Algorithm Dept.", now: true, bullets: [
+    "Leading AdsLLM and AI Agents for Kuaishou's commercialization scenarios: zero-material ad generation, intelligent customer service, ad delivery agents.",
+    "Built a 0→1 advertising agent generating complete AIGC short-video ads from product images or landing pages, cutting production cost by orders of magnitude at 100k+ videos/day.",
+    "Led the AI novel agent system 0→1: LLM-based classification, structured understanding, highlight extraction, generation and quality evaluation, deployed at scale.",
+    "Drove generative recommendation and personalized AIGC ad generation, plus research on efficient video generation, long-range visual consistency and multimodal ad editing." ]},
+  { when: "2023.03 – 2025.01", role: "Senior AIGC Algorithm Engineer", org: "ByteDance · Commercialization GenAI", bullets: [
+    "Led AdsLLM: continued pretraining, alignment, evaluation and platform capabilities for ad creation, moderation, customer service and diagnosis.",
+    "Built data cleaning, SFT construction and quality evaluation pipelines across 40+ business scenarios; improved long-context, function-calling, RAG and instruction following.",
+    "Established an evaluation system combining automatic, GPT-based and human review." ]},
+  { when: "2021.10 – 2023.03", role: "CV Algorithm Engineer", org: "ByteDance · AI-Lab", bullets: [
+    "Led video-to-product retrieval, matching videos to in-platform and external products with multimodal understanding.",
+    "Built the full stack: intent recognition, detection and tracking, product recognition, ANN retrieval and ranking." ]},
+  { when: "2021.06 – 2021.10", role: "CV Algorithm Engineer", org: "ByteDance · AI-Lab", bullets: [
+    "Built multimodal ad-understanding models combining visual and textual signals to improve CTR/CVR prediction." ]},
+  { when: "2020.07 – 2020.10", role: "Algorithm Engineer Intern", org: "Alibaba Group", bullets: [
+    "Advertising creative material mining, object matting, image generation and video understanding." ]},
+  { when: "2018.07 – 2019.07", role: "Research Intern", org: "Tencent · Medical AI Lab", bullets: [
+    "Core reading-comprehension model for the MedQA system — scored 390+ on the national medical qualification exam, beating 70%+ of human examinees.",
+    "Automatic chest X-ray diagnosis and report generation." ]},
+  { when: "2017.07 – 2017.09", role: "Engineering Intern", org: "Tencent Cloud", bullets: [
+    "Panshi system decoupling: separated web access layer from data access layer, reworked data interfaces and plugins." ]},
+  { when: "2017.05 – 2017.06", role: "Exchange Student", org: "Hong Kong Baptist University", bullets: [
+    "Research on blockchain technology." ]}
+];
+
+/* 论文原文由 tools/fetch_papers.py 在构建期抓取，运行时按需注入，不进 system prompt */
+const FULLTEXT = window.PAPER_FULLTEXT || {};
+
+/* 引用数与 preprint 列表同步自 Google Scholar (LKvjDSgAAAAJ)，总引用 412 · h-index 7 */
+const SCHOLAR = { citations: 412, since2021: 399, hIndex: 7, i10: 7 };
+
+const PAPERS = [
+  { id:"adaptive-video-distillation", year:2026, venue:"CVPR", corr:true, cites:2,
+    title:"Adaptive Video Distillation: Mitigating Oversaturation and Temporal Collapse in Few-Step Generation",
+    authors:["Yuyang You","*Yongzhi Li","Jiahui Li","Yadong Mu","Quan Chen","Peng Jiang"],
+    tags:["video generation","distillation","few-step"],
+    tldr:"面向少步视频生成的自适应蒸馏方法，缓解过饱和与时序坍塌两类退化。",
+    links:{ pdf:"https://arxiv.org/pdf/2603.21864", arxiv:"https://arxiv.org/abs/2603.21864" } },
+  { id:"narrative-weaver", year:2026, venue:"CVPR", corr:true, cites:0,
+    title:"Narrative Weaver: Towards Controllable Long-Range Visual Consistency with Multi-Modal Conditioning",
+    authors:["Zhengjian Yao","*Yongzhi Li","Xinyuan Gao","Quan Chen","Peng Jiang","Yanye Lu"],
+    tags:["video generation","consistency","multimodal"],
+    tldr:"用多模态条件控制长程视觉一致性，让长叙事视频里的人物与场景保持稳定。",
+    links:{ pdf:"https://arxiv.org/pdf/2603.06688", arxiv:"https://arxiv.org/abs/2603.06688" } },
+  { id:"autocut", year:2026, venue:"CVPR", corr:true, cites:0,
+    title:"AutoCut: End-to-end Advertisement Video Editing Based on Multimodal Discretization and Controllable Generation",
+    authors:["*Milton Zhou","*Sizhong Qin","*Yongzhi Li","Quan Chen","Peng Jiang"],
+    tags:["video editing","advertising","multimodal"],
+    tldr:"把广告视频剪辑建模为多模态离散化 + 可控生成的端到端问题。",
+    links:{ pdf:"https://arxiv.org/pdf/2603.28366", arxiv:"https://arxiv.org/abs/2603.28366" } },
+  { id:"generative-recommendation-ads", year:2026, venue:"KDD", cites:11,
+    title:"Generative Recommendation for Large-Scale Advertising",
+    authors:["Ben Xue","Dan Liu","et al.","*Yongzhi Li","Quan Chen","Peng Jiang","Kun Gai"],
+    tags:["generative recommendation","advertising"],
+    tldr:"面向大规模广告系统的生成式推荐方案。",
+    links:{ pdf:"https://dl.acm.org/doi/pdf/10.1145/3770855.3818424", arxiv:"https://arxiv.org/abs/2602.22732" } },
+  { id:"ecom-instance-pretrain", year:2023, venue:"CVPR", cites:34,
+    title:"Learning Instance-Level Representation for Large-Scale Multi-Modal Pretraining in E-commerce",
+    authors:["Yang Jin","*Yongzhi Li","Zehuan Yuan","Yadong Mu"],
+    tags:["multimodal pretraining","e-commerce"],
+    tldr:"电商场景的实例级多模态预训练表征。",
+    links:{ pdf:"https://arxiv.org/pdf/2304.02853", arxiv:"https://arxiv.org/abs/2304.02853" } },
+  { id:"stvg-consistency", year:2022, venue:"NeurIPS", cites:74,
+    title:"Embracing Consistency: A One-Stage Approach for Spatio-Temporal Video Grounding",
+    authors:["Yang Jin","*Yongzhi Li","Zehuan Yuan","Yadong Mu"],
+    tags:["video grounding","spatio-temporal"],
+    tldr:"用一致性约束的单阶段框架做时空视频定位。",
+    links:{ pdf:"https://proceedings.neurips.cc/paper_files/paper/2022/file/bc18c538d983cea434f9281148d43e1e-Paper-Conference.pdf", arxiv:"https://arxiv.org/abs/2209.13306" } },
+  { id:"catadioptric-pose", year:2021, venue:"IJCAI", cites:7,
+    title:"Learning 3-D Human Pose Estimation from Catadioptric Videos",
+    authors:["Chenchen Liu","*Yongzhi Li","Kangqi Ma","Duo Zhang","Peijun Bao","Yadong Mu"],
+    tags:["3D pose","video"],
+    tldr:"利用折反射（镜面）视频学习三维人体姿态估计。",
+    links:{ pdf:"https://www.ijcai.org/proceedings/2021/0118.pdf" } },
+  { id:"adv-hash-search", year:2021, venue:"ICME", first:true, cites:3,
+    title:"Efficient Fine-Grained Visual-Text Search Using Adversarially-Learned Hash Codes",
+    authors:["*Yongzhi Li","Yadong Mu","Nan Zhuang","Xianglong Liu"],
+    tags:["cross-modal retrieval","hashing"],
+    tldr:"对抗学习的哈希编码，实现细粒度图文检索的高效索引。",
+    links:{ pdf:"https://pkumyd.github.io/paper/icme21_liyz.pdf" } },
+  { id:"multiview-crowd", year:2021, venue:"ICME", cites:14,
+    title:"Learning Factorized Cross-View Fusion for Multi-View Crowd Counting",
+    authors:["Liangfeng Zheng","*Yongzhi Li","Yadong Mu"],
+    tags:["crowd counting","multi-view"],
+    tldr:"分解式跨视角融合用于多视角人群计数。",
+    links:{ pdf:"https://pkumyd.github.io/paper/icme21_zhenglf.pdf" } },
+  { id:"visual-semantic-matching", year:2020, venue:"CVPR", first:true, cites:46,
+    title:"Visual-Semantic Matching by Exploring High-Order Attention and Distraction",
+    authors:["*Yongzhi Li","Duo Zhang","Yadong Mu"],
+    tags:["visual-semantic","attention"],
+    tldr:"引入高阶注意力与 distraction 建模改进图文语义匹配。",
+    links:{ pdf:"https://pkumyd.github.io/paper/CVPR2020_LYZ.pdf" } },
+  { id:"spectral-medical", year:2020, venue:"ICME", first:true, cites:2,
+    title:"Spectrally-Enforced Global Receptive Field for Contextual Medical Image Segmentation and Classification",
+    authors:["*Yongzhi Li","Lu Chi","Guiyu Tian","Yadong Mu","Shen Ge","Zhi Qiao","Xian Wu","Wei Fan"],
+    tags:["medical imaging","spectral"],
+    tldr:"用谱域方法构造全局感受野，改进医学图像分割与分类。",
+    links:{ pdf:"https://pkumyd.github.io/paper/ICME20_LYZ.pdf" } },
+  { id:"video-steganography", year:2019, venue:"ICMR", oral:true, first:true, cites:197,
+    title:"High-Capacity Convolutional Video Steganography with Temporal Residual Modeling",
+    authors:["Xinyu Weng","*Yongzhi Li","Lu Chi","Yadong Mu"],
+    tags:["steganography","video"],
+    tldr:"基于时序残差建模的高容量视频隐写。",
+    links:{ pdf:"https://dl.acm.org/doi/pdf/10.1145/3323873.3325011", arxiv:"https://arxiv.org/abs/1806.02941" } },
+
+  /* ---- preprints / under review（同步自 Google Scholar，作者缩写沿用 Scholar 原文） ---- */
+  { id:"acpo", year:2026, venue:"arXiv", preprint:true, cites:1,
+    title:"ACPO: Adaptive Credit Policy Optimization via Fine-Grained Surrogate Entropy",
+    authors:["Z. Xie","Yuyang You","*Yongzhi Li","E. Gong","Z. Chen","Quan Chen","Y. Cheng","Peng Jiang","Yadong Mu"],
+    tags:["reinforcement learning","policy optimization","entropy"],
+    tldr:"用细粒度替代熵做自适应信用分配的策略优化方法。",
+    links:{ pdf:"https://arxiv.org/pdf/2607.03126", arxiv:"https://arxiv.org/abs/2607.03126" } },
+  { id:"rec-as-generation", year:2026, venue:"arXiv", preprint:true,
+    title:"Recommendation as Generation: Unifying Personalized Video Generation and Recommendation at Industrial Scale",
+    authors:["Y. Cheng","B. Wang","H. Zhang","X. Gao","Z. Yin","Ben Xue","*Yongzhi Li","J. Xue","Y. Ma","et al."],
+    tags:["generative recommendation","video generation","industrial"],
+    tldr:"把推荐直接建模为生成，在工业规模上统一个性化视频生成与推荐。",
+    links:{ pdf:"https://arxiv.org/pdf/2606.25496", arxiv:"https://arxiv.org/abs/2606.25496" } },
+  { id:"fbos-rl", year:2026, venue:"arXiv", preprint:true,
+    title:"FBOS-RL: Feedback-Driven Bi-Objective Synergistic Reinforcement Learning",
+    authors:["X. Zhang","*Yongzhi Li","L. Xiao","Y. Zhang","Y. Cheng","Quan Chen","Peng Jiang","W. Wu","L. Liu"],
+    tags:["reinforcement learning","multi-objective"],
+    tldr:"反馈驱动的双目标协同强化学习框架。",
+    links:{ pdf:"https://arxiv.org/pdf/2605.20256", arxiv:"https://arxiv.org/abs/2605.20256" } },
+  { id:"universal-discrete-tokenizers", year:2026, venue:"TechRxiv", preprint:true,
+    title:"Universal Discrete Tokenizers: Principles, Applications, and Future Directions",
+    authors:["Ben Xue","J. Wang","*Yongzhi Li","J. Lan","H. Xu","J. Jia","Peng Jiang","Quan Chen","Kun Gai","L. Liu","et al."],
+    tags:["tokenizer","discrete representation","survey"],
+    tldr:"通用离散 tokenizer 的原理、应用与未来方向综述。",
+    links:{ pdf:"https://www.techrxiv.org/doi/pdf/10.36227/techrxiv.176948380.07525656/v1" } },
+  { id:"imagine-multi-agent", year:2025, venue:"arXiv", preprint:true, cites:1,
+    title:"Imagine: Integrating Multi-Agent System into One Model for Complex Reasoning and Planning",
+    authors:["X. Zhang","B. Wang","L. Xiao","*Yongzhi Li","Quan Chen","W. Wu","L. Liu"],
+    tags:["ai agents","reasoning","planning"],
+    tldr:"把多智能体系统整合进单个模型来完成复杂推理与规划。",
+    links:{ pdf:"https://arxiv.org/pdf/2510.14406", arxiv:"https://arxiv.org/abs/2510.14406" } }
+];
+
+const PROJECTS = [
+  { name:"Selfie to Anime", desc:"Turns a selfie into anime style and restyles the background at once — human matting + face style translation + neural style transfer.", url:"https://github.com/muziyongshixin/hyperplane-google-winter-camp" },
+  { name:"Deep Image Steganography", desc:"Hide an entire image inside another image with deep neural networks.", url:"https://github.com/muziyongshixin/pytorch-Deep-Steganography" },
+  { name:"ORB-SLAM2 Android AR", desc:"Ported ORB-SLAM2 to Android; vision-only localization and mapping with an OpenGL AR layer at 10 fps on a Snapdragon 835.", url:"https://github.com/muziyongshixin/ORB-SLAM2-based-AR-on-Android" },
+  { name:"Mobile Digital Watermarking", desc:"Embeds hidden information into photos at capture time; the server parses it back — for asset surveillance, sign-in and anti-piracy.", url:"https://github.com/muziyongshixin/WaterMarking" }
+];
+
+/* 正文摘要与章节结构由 tools/extract_posts.py 从 _posts 编译而来 */
+const POST_EXTRA = { "deepseek-v4-deep-dive": { rich: true } };
+const POSTS = (window.POSTS_DATA || []).map(p => ({
+  tags: [], headings: [], excerpt: "", ...p, ...(POST_EXTRA[p.slug] || {}),
+  url: p.url ? PROFILE.site + p.url : `${PROFILE.site}/posts/${p.date.slice(0,4)}/${p.date.slice(5,7)}/${p.slug}/`
+}));
+
+const RESEARCH = [
+  { k:"Multimodal Generation", v:[
+    "Video/image generation with better controllability, consistency and production quality.",
+    "Efficient training and inference for large-scale creative generation systems.",
+    "Editing and generation pipelines for advertisement video and product-driven content." ]},
+  { k:"LLMs and AI Agents", v:[
+    "Domain-adapted LLM systems for advertising, customer service, diagnosis and workflow automation.",
+    "Agentic systems combining planning, retrieval, tool use and evaluation.",
+    "Long-context understanding, structured outputs and real-world deployment." ]},
+  { k:"Recommendation & Ads Intelligence", v:[
+    "Generative recommendation for large-scale advertising platforms.",
+    "Multimodal understanding of products, landing pages and creative materials.",
+    "Connecting model quality to measurable business outcomes." ]},
+  { k:"Earlier Research", v:[
+    "Computer vision, cross-modal retrieval and visual-text matching.",
+    "Medical AI and multimodal representation learning.",
+    "Video understanding, retrieval and structured content analysis." ]}
+];
+
+/* 「最近有几篇被什么会议接收」必须从数据算，写死的话每加一篇论文就错一次 */
+const LATEST_YEAR = Math.max(...PAPERS.map(p => p.year));
+const recentPapers = () => PAPERS.filter(p => p.year >= LATEST_YEAR);
+function recentLine() {
+  const rs = recentPapers();
+  const accepted = rs.filter(p => !p.preprint);
+  const venues = [...new Set(accepted.map(p => p.venue))].join(" / ");
+  const parts = [];
+  if (accepted.length) parts.push(`${accepted.length} 篇被 ${venues} ${LATEST_YEAR} 接收`);
+  const pre = rs.length - accepted.length;
+  if (pre) parts.push(`${pre} 篇预印本`);
+  return parts.join("，") || `${LATEST_YEAR} 年成果`;
+}
+
+const SERVICE = ["Reviewer, CVPR 2023", "Reviewer, Neural Computing"];
+const SKILLS  = ["Python","C++","Golang","PyTorch","Transformers","Diffusion / DiT","RLHF · GRPO","Multimodal Systems"];
+
+/* ============================================================
+   2. UTIL
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const stream = $("#stream"), viewport = $("#viewport"), input = $("#cmdline"),
+      ghost = $("#ghost"), caret = $("#caret");
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const scroll = () => { viewport.scrollTop = viewport.scrollHeight; };
+
+function raw(html) {
+  const d = document.createElement("div");
+  d.innerHTML = html;
+  stream.appendChild(d); scroll();
+  return d;
+}
+/* the one output primitive: a labelled module block */
+function mod(tag, body, o = {}) {
+  const el = document.createElement("div");
+  el.className = "mod";
+  el.dataset.kind = o.kind || "content";
+  el.innerHTML =
+    `<div class="mod-bar"><span class="mod-tag">${esc(tag)}</span>` +
+    (o.sub ? `<span class="mod-sub">${o.sub}</span>` : "") +
+    (o.meta ? `<span class="mod-meta">${esc(o.meta)}</span>` : "") +
+    `</div><div class="mod-body">${body}</div>`;
+  stream.appendChild(el);
+  el.querySelectorAll(".card").forEach((c, i) => c.style.animationDelay = Math.min(i * 32, 420) + "ms");
+  scroll();
+  return el;
+}
+const authorLine = a => a.map(n =>
+  n.startsWith("*") ? `<span class="b acc">${esc(n.slice(1))}</span>` : esc(n)).join(", ");
+
+/* ============================================================
+   3. AMBIENT FX
+   ============================================================ */
+/* --- background mosaic reacting to the pointer --- */
+(function mosaicFX() {
+  const cv = $("#mosaic"), ctx = cv.getContext("2d");
+  const S = 18;                       // cell size
+  let cols, rows, energy, W, H, dpr;
+  const mouse = { x: -999, y: -999, px: -999, py: -999 };
+
+  function resize() {
+    dpr = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    cv.style.width = W + "px"; cv.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cols = Math.ceil(W / S) + 1; rows = Math.ceil(H / S) + 1;
+    energy = new Float32Array(cols * rows);
+  }
+  resize(); addEventListener("resize", resize);
+
+  addEventListener("pointermove", e => { mouse.x = e.clientX; mouse.y = e.clientY; }, { passive: true });
+  addEventListener("pointerleave", () => { mouse.x = mouse.y = -999; });
+
+  function accent() {
+    return getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+  }
+  let col = accent(), tick = 0;
+
+  function frame() {
+    tick++;
+    if (tick % 90 === 0) col = accent();
+    ctx.clearRect(0, 0, W, H);
+
+    /* pointer injects energy in a soft radius */
+    if (mouse.x > -900) {
+      const R = 5, cx = Math.floor(mouse.x / S), cy = Math.floor(mouse.y / S);
+      const speed = Math.min(1, Math.hypot(mouse.x - mouse.px, mouse.y - mouse.py) / 26);
+      for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) {
+        const x = cx + dx, y = cy + dy;
+        if (x < 0 || y < 0 || x >= cols || y >= rows) continue;
+        const d = Math.hypot(dx, dy);
+        if (d > R) continue;
+        const add = (1 - d / R) * (0.30 + speed * 0.55);
+        const i = y * cols + x;
+        if (add > energy[i]) energy[i] = add;
+      }
+    }
+    mouse.px = mouse.x; mouse.py = mouse.y;
+
+    /* ambient sparks */
+    for (let k = 0; k < 2; k++) {
+      const i = (Math.random() * energy.length) | 0;
+      if (energy[i] < 0.05) energy[i] = 0.14 + Math.random() * 0.12;
+    }
+
+    for (let i = 0; i < energy.length; i++) {
+      const e = energy[i];
+      if (e < 0.015) { energy[i] = 0; continue; }
+      const x = (i % cols) * S, y = ((i / cols) | 0) * S;
+      const inset = e > 0.45 ? 1 : 2;
+      ctx.globalAlpha = e * 0.5;
+      ctx.fillStyle = col;
+      ctx.fillRect(x + inset, y + inset, S - inset * 2, S - inset * 2);
+      energy[i] = e * 0.925;
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
+
+/* --- wireframe cube tracking the pointer --- */
+(function cubeFX() {
+  const cube = $("#cube");
+  let tx = -22, ty = 28, cx = 0, cy = 0, spin = 0;
+  addEventListener("pointermove", e => {
+    ty = (e.clientX / innerWidth - .5) * 110;
+    tx = (.5 - e.clientY / innerHeight) * 90;
+  }, { passive: true });
+  (function loop() {
+    spin += 0.22;
+    cx += (tx - cx) * .07; cy += (ty - cy) * .07;
+    cube.style.transform = `rotateX(${cx}deg) rotateY(${cy + spin}deg)`;
+    requestAnimationFrame(loop);
+  })();
+})();
+
+/* --- pixel portrait: rebuilt from quantised data, never the original photo --- */
+const PIX = (function pixelPortrait() {
+  const D = window.AVATAR_DATA;
+  const W = D.w, H = D.h, AR = W / H;
+  const luma = new Uint8Array(W * H), pidx = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    luma[i] = parseInt(D.luma[i], 16);
+    pidx[i] = parseInt(D.idx[i], 16);
+  }
+
+  /* duotone ramps: shadows melt into the page, highlights carry the accent */
+  const RAMP = {
+    dark: ["#0F0D0C","#171412","#211B18","#2E2320","#3E2C26","#51372C","#663F30","#7D4B37",
+           "#96593F","#AE6748","#C67052","#D97757","#E28E6F","#E9A98D","#F0C6AE","#F6E2D2"],
+    light:["#241A14","#33241B","#452F22","#573A28","#6A452F","#7D5036","#8F5B3D","#A26746",
+           "#B4744F","#C2855F","#CE9878","#D8AB93","#E1BEAC","#E8CFC2","#EEDFD6","#F2EFE8"]
+  };
+  const BAYER = [0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5];
+  const ASCII = " .:-=+*#%@";
+  const MODES = ["duotone", "color", "dither", "ascii"];
+
+  const theme = () => document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  /* box-downsample the source grid to cw×ch */
+  function sample(src, cw, ch) {
+    if (cw >= W) return src;
+    const o = new Uint8Array(cw * ch), kx = W / cw, ky = H / ch;
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+      let s = 0, c = 0;
+      for (let j = (y * ky) | 0; j < ((y + 1) * ky) | 0; j++)
+        for (let i = (x * kx) | 0; i < ((x + 1) * kx) | 0; i++) { s += src[j * W + i]; c++; }
+      o[y * cw + x] = c ? Math.round(s / c) : 0;
+    }
+    return o;
+  }
+  /* nearest-neighbour for palette indices — averaging indices is meaningless */
+  function pick(src, cw, ch) {
+    if (cw >= W) return src;
+    const o = new Uint8Array(cw * ch), kx = W / cw, ky = H / ch;
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++)
+      o[y * cw + x] = src[(((y + .5) * ky) | 0) * W + (((x + .5) * kx) | 0)];
+    return o;
+  }
+
+  /* size the backing store to the element's real pixels — no CSS upscaling */
+  function fit(cv) {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const w = Math.round((cv.clientWidth || 200) * dpr);
+    const h = Math.round(w / AR);
+    if (cv.width !== w) { cv.width = w; cv.height = h; }
+    return cv;
+  }
+
+  function draw(cv, opt = {}) {
+    const mode = opt.mode || "duotone";
+    const cw = Math.min(opt.res || W, W), ch = Math.round(cw / AR);
+    fit(cv);
+    const ctx = cv.getContext("2d");
+    const cell = cv.width / cw, pad = Math.ceil(cell) + 1;
+    const L = sample(luma, cw, ch), P = pick(pidx, cw, ch);
+    const ramp = RAMP[theme()];
+    const acc = cssVar("--accent"), bg = cssVar("--bg");
+
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    if (mode === "ascii") {
+      ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height);
+      ctx.font = `${cell * 1.4}px ${cssVar("--mono") || "monospace"}`;
+      ctx.textBaseline = "middle"; ctx.textAlign = "center";
+    }
+
+    for (let y = 0; y < ch; y++) {
+      const dy = opt.jitter && Math.random() < .22 ? (Math.random() - .5) * cell * 5 : 0;
+      for (let x = 0; x < cw; x++) {
+        const v = L[y * cw + x];
+        const px = x * cell + dy, py = y * cell;
+        if (mode === "ascii") {
+          ctx.fillStyle = ramp[Math.max(4, v)];
+          ctx.fillText(ASCII[(v * (ASCII.length - 1) / 15) | 0], px + cell / 2, py + cell / 2);
+        } else if (mode === "dither") {
+          const t = BAYER[(y % 4) * 4 + (x % 4)];
+          ctx.fillStyle = (v * 16 / 15) > t ? acc : bg;
+          ctx.fillRect(px, py, pad, pad);
+        } else {
+          ctx.fillStyle = mode === "color" ? D.pal[P[y * cw + x]] : ramp[v];
+          ctx.fillRect(px, py, pad, pad);
+        }
+      }
+    }
+  }
+
+  /* ---- sidebar instance ---- */
+  const side = $("#avatar");
+  let mode = localStorage.getItem("lyz.pixmode") || "duotone", res = W, glitch = null;
+  const paint = o => draw(side, { mode, res, ...o });
+  const STEPS = [5, 8, 13, 20, 30, 45, 68, W];
+
+  function decode(delay = 90) {
+    STEPS.forEach((r, i) => setTimeout(() => { res = r; paint(); }, delay + i * 78));
+  }
+  function setMode(m) {
+    mode = MODES.includes(m) ? m : "duotone";
+    localStorage.setItem("lyz.pixmode", mode);
+    $("#avaMode").textContent = mode.toUpperCase();
+    paint();
+  }
+  function cycle() { setMode(MODES[(MODES.indexOf(mode) + 1) % MODES.length]); }
+
+  const wrap = $("#avaWrap");
+  wrap.addEventListener("pointerenter", () => {
+    let n = 0;
+    clearInterval(glitch);
+    glitch = setInterval(() => {
+      paint({ jitter: true, res: n < 2 ? 30 : W });
+      if (++n > 5) { clearInterval(glitch); paint(); }
+    }, 60);
+  });
+  wrap.addEventListener("pointerleave", () => { clearInterval(glitch); paint(); });
+  wrap.addEventListener("click", cycle);
+  addEventListener("resize", () => paint());
+
+  return { draw, decode, cycle, setMode, repaint: () => paint(),
+           get mode() { return mode; }, MODES, W, H, STEPS };
+})();
+
+/* ============================================================
+   4. LLM
+   ============================================================ */
+const MODELS = [
+  "deepseek-ai/DeepSeek-V4-Flash-0731",
+  "Qwen/Qwen3.8-Flash-Next",
+  "Qwen/Qwen3-235B-A22B-Instruct-2507",
+  "deepseek-ai/DeepSeek-V3.1",
+  "Qwen/Qwen3-32B",
+  "ZhipuAI/GLM-4.5"
+];
+const LLM = {
+  endpoint: "https://api-inference.modelscope.cn/v1/chat/completions",
+  model: localStorage.getItem("lyz.model") || MODELS[0],
+  get key() { return localStorage.getItem("lyz.mskey") || ""; },
+  set key(v) { localStorage.setItem("lyz.mskey", v); }
+};
+
+/* 多轮对话历史。每次请求发送 [system, ...CHAT, newUser]，前缀不变，
+   服务端的 KV cache 才能命中 —— 否则那 8K token 的 system prompt 每轮都要重新 prefill。 */
+const CHAT = [];
+const CHAT_BUDGET = 32000;   // 历史字符预算
+const OUTPUT_CAP  = 1800;    // 终端输出计入上下文的上限
+
+/* 命令输出也算对话的一部分：模型看到的东西 = 访客屏幕上看到的东西，
+   这样「第三篇讲什么」「刚才那个项目」这类指代才有依据。
+
+   cap 必须能关掉：真正发给模型的消息若在历史里被截断，下一轮的前缀就和
+   上一轮实际发送的不一致，服务端 KV cache 必然失效。所以只有终端输出这类
+   「记录性」内容才截断，发送过的原文一律原样留存。 */
+function pushContext(role, content, cap = OUTPUT_CAP) {
+  content = String(content || "").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  if (!content) return;
+  if (cap && content.length > cap) content = content.slice(0, cap) + "\n…（输出较长，此处截断）";
+  CHAT.push({ role, content });
+  trimChat();
+  updateLLMStatus();
+}
+
+function trimChat() {
+  let total = CHAT.reduce((n, m) => n + m.content.length, 0);
+  if (total <= CHAT_BUDGET) return false;
+  /* 超预算时一次性砍到 60%，而不是每轮丢一对：
+     每丢一次前缀就变了，缓存必然失效，所以要尽量少丢、丢得狠一点。 */
+  while (CHAT.length > 2 && total > CHAT_BUDGET * 0.6) {
+    total -= CHAT[0].content.length + CHAT[1].content.length;
+    CHAT.splice(0, 2);
+  }
+  return true;
+}
+const turns = () => CHAT.length >> 1;
+
+function knowledge() {
+  const role = p => p.first ? "first author" : p.corr ? "corresponding author" : "co-author";
+  return [
+`# 基本信息
+姓名：${PROFILE.name}
+职位：${PROFILE.role}，${PROFILE.org}
+所在地：${PROFILE.location}
+简介：${PROFILE.bio}
+联系方式：邮箱 ${PROFILE.email}；微信 ${PROFILE.wechat}；GitHub ${PROFILE.github}；Google Scholar ${PROFILE.scholar}；LinkedIn ${PROFILE.linkedin}
+个人主页：${PROFILE.site}
+产出概览：${PAPERS.filter(p=>!p.preprint).length} 篇同行评审论文 + ${PAPERS.filter(p=>p.preprint).length} 篇预印本、${POSTS.length} 篇技术文章、${PROJECTS.length} 个开源项目
+引用数据（Google Scholar）：总引用 ${SCHOLAR.citations}，2021 年至今 ${SCHOLAR.since2021}，h-index ${SCHOLAR.hIndex}，i10-index ${SCHOLAR.i10}`,
+
+`# 教育背景
+` + EDUCATION.map(e => `- ${e.school}，${e.degree}，${e.when}。${e.note}`).join("\n"),
+
+`# 工作经历（倒序）
+` + EXPERIENCE.map(e => `## ${e.role} @ ${e.org}（${e.when}）${e.now ? "【在职】" : ""}\n` +
+    e.bullets.map(b => "- " + b).join("\n")).join("\n\n"),
+
+`# 论文发表（共 ${PAPERS.length} 篇，含 ${PAPERS.filter(p=>p.preprint).length} 篇预印本）
+` + PAPERS.map((p, i) => `## [${i+1}] ${p.title}
+- 发表于：${p.venue} ${p.year}${p.oral ? "（Oral）" : ""}${p.preprint ? "（预印本，尚未正式发表）" : ""}
+- 作者：${p.authors.map(a => a.replace("*","")).join(", ")}（他本人是${role(p)}）
+- 研究主题：${p.tags.join(", ")}
+- 一句话概括：${p.tldr}
+- 引用数：${p.cites || 0}${p.links?.pdf ? `\n- 原文链接：${p.links.pdf}` : ""}${
+  FULLTEXT[p.id]?.sections?.length ? `\n- 本站已缓存该论文 ${FULLTEXT[p.id].sections.length} 节原文，需要技术细节时调用 read_paper("${p.id}")` : ""}`).join("\n\n"),
+
+`# 研究方向
+` + RESEARCH.map(r => `## ${r.k}\n` + r.v.map(x => "- " + x).join("\n")).join("\n\n"),
+
+`# 技术博客（共 ${POSTS.length} 篇，作者本人撰写）
+` + POSTS.map(p => `## ${p.title}
+- 日期：${p.date}${p.tags?.length ? `\n- 标签：${p.tags.join(", ")}` : ""}
+- 链接：${p.url}${p.headings?.length ? `\n- 文章结构：${p.headings.join(" / ")}` : ""}${p.excerpt ? `\n- 开头节选：${p.excerpt}` : ""}`).join("\n\n"),
+
+`# 开源项目
+` + PROJECTS.map(p => `- ${p.name}：${p.desc} 代码：${p.url}`).join("\n"),
+
+`# 学术服务
+` + SERVICE.map(s => "- " + s).join("\n"),
+
+`# 技术栈
+` + SKILLS.join("、"),
+
+`# 本站可用命令（访客可以在终端输入）
+` + ORDER.filter(n => !CMD[n].hidden).map(n => `- ${CMD[n].usage || n}：${CMD[n].desc}`).join("\n")
+  ].join("\n\n");
+}
+
+const sysPrompt = () => `你是 ${PROFILE.name}（英文名 Yongzhi Li）个人主页终端里的 AI 助理，代表他回答访客的提问。今天是 ${new Date().toISOString().slice(0,10)}。
+
+回答规则：
+1. 严格依据下面的资料回答。资料里没有的信息，明确说不知道，并建议访客发邮件到 ${PROFILE.email}。绝不编造论文标题、数字、时间或经历。
+2. 区分"资料中的事实"和"领域常识"。补充背景知识时要让访客知道那是通用背景，不是他本人的工作。
+3. 简洁，默认 3-6 句。技术问题可以展开，但不要凑字数。
+4. 用访客提问的语言回答：中文提问用中文，英文提问用英文。
+5. 纯文本输出。不要 markdown 标题、加粗和表格；需要列举时用 "- " 开头。
+6. 提到论文时带上会议和年份，例如「AutoCut（CVPR 2026）」。提到博客时带上标题。
+7. 如果某个问题用站内命令能更好地展示（比如完整论文列表用 pub、简历用 cv、讲解某篇论文用 explain <id>），可以在回答末尾用一句话建议访客试试那个命令。
+8. 访客问的问题如果和他本人无关（比如通用技术问题），可以正常回答，但要简短，并尽量关联到他的相关工作或博客。
+
+${agentEnabled ? toolsPrompt() : ""}
+
+关于对话历史：这个终端里，访客执行命令产生的输出也会作为 assistant 消息记录下来，以「[终端输出 · 命令名]」开头。那些不是你说的话，而是访客屏幕上看到的内容。你要把它们当作访客当前的视野：当他说「第三篇」「刚才那个项目」「上面提到的公司」时，去最近的终端输出里找对应的条目。回答时不要复述整段终端输出，也不要假装那是你说的。
+
+<资料>
+${knowledge()}
+</资料>`;
+
+async function llmStream(messages, onDelta) {
+  const res = await fetch(LLM.endpoint, {
+    method: "POST",
+    headers: { "Authorization": "Bearer " + LLM.key, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: LLM.model, messages, stream: true, temperature: .4, max_tokens: 1200 })
+  });
+  if (!res.ok) throw new Error("HTTP " + res.status + " " + (await res.text()).slice(0, 240));
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const lines = buf.split("\n"); buf = lines.pop();
+    for (const l of lines) {
+      const line = l.trim();
+      if (!line.startsWith("data:")) continue;
+      const d = line.slice(5).trim();
+      if (d === "[DONE]") return;
+      try { const t = JSON.parse(d).choices?.[0]?.delta?.content; if (t) onDelta(t); } catch {}
+    }
+  }
+}
+
+/* ============================================================
+   4b. TOOLS  —  纯前端可达的工具集
+   只收录明确放行 CORS 的服务：arXiv 与 Semantic Scholar 都不带
+   Access-Control-Allow-Origin，浏览器直连会被拦，所以走 OpenAlex。
+   ============================================================ */
+
+/* --- 站内检索：中文按 bigram、英文按词切，简单 TF 打分 --- */
+function tokenize(s) {
+  s = String(s).toLowerCase();
+  const t = s.match(/[a-z0-9]{2,}/g) || [];
+  const zh = s.replace(/[^\u4e00-\u9fa5]/g, "");
+  for (let i = 0; i < zh.length - 1; i++) t.push(zh.slice(i, i + 2));
+  return t;
+}
+let DOCS = null;
+function buildDocs() {
+  if (DOCS) return DOCS;
+  DOCS = [];
+  PAPERS.forEach(p => DOCS.push({ kind: "paper", ref: p.id,
+    title: `${p.title}（${p.venue} ${p.year}）`,
+    text: `${p.title} ${p.tags.join(" ")} ${p.tldr} ${p.authors.join(" ")} ${p.venue} ${p.year}` }));
+  POSTS.forEach(p => DOCS.push({ kind: "post", ref: p.slug,
+    title: `博客：${p.title}`,
+    text: `${p.title} ${(p.tags || []).join(" ")} ${(p.headings || []).join(" ")} ${p.excerpt || ""}` }));
+  EXPERIENCE.forEach(e => DOCS.push({ kind: "experience", ref: e.org,
+    title: `${e.role} @ ${e.org}（${e.when}）`,
+    text: `${e.role} ${e.org} ${e.when} ${e.bullets.join(" ")}` }));
+  PROJECTS.forEach(p => DOCS.push({ kind: "project", ref: p.name,
+    title: `项目：${p.name}`, text: `${p.name} ${p.desc}` }));
+  RESEARCH.forEach(r => DOCS.push({ kind: "research", ref: r.k,
+    title: `研究方向：${r.k}`, text: `${r.k} ${r.v.join(" ")}` }));
+  EDUCATION.forEach(e => DOCS.push({ kind: "education", ref: e.school,
+    title: `${e.school} ${e.degree}`, text: `${e.school} ${e.degree} ${e.when} ${e.note}` }));
+  DOCS.forEach(d => d.tok = tokenize(d.text));
+  return DOCS;
+}
+
+const withTimeout = (ms) => {
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+};
+
+const TOOLS = {
+  site_search: {
+    desc: "在本站资料里检索（论文 / 博客 / 工作经历 / 项目 / 研究方向）。回答与李勇志本人相关的问题时优先使用。",
+    args: "query: 检索关键词",
+    async run({ query }) {
+      const q = tokenize(query || "");
+      if (!q.length) return "查询为空。";
+      const hits = buildDocs().map(d => {
+        let s = 0;
+        for (const t of q) if (d.tok.includes(t)) s += t.length > 2 ? 2 : 1;
+        return { d, s };
+      }).filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 6);
+      if (!hits.length) return `本站资料里没有匹配「${query}」的内容。`;
+      return hits.map(({ d }, i) =>
+        `${i + 1}. [${d.kind}] ${d.title}\n   ${d.text.slice(0, 230)}`).join("\n");
+    }
+  },
+
+  read_paper: {
+    desc: "读取某篇论文的原文内容（摘要 + 各章节摘录）。构建期已从 arXiv / CVF / OpenReview 抓好并随站点发布，本地即时返回。解读、对比、追问某篇论文的技术细节时用它。",
+    args: "id: 论文 id 或标题关键词；section: 可选，只取标题含该关键词的章节",
+    async run({ id, section }) {
+      const p = findPaper(id);
+      if (!p) return `没有找到论文「${id}」。可用 id：` + PAPERS.map(x => x.id).join(", ");
+      const ft = FULLTEXT[p.id];
+      if (!ft) return `《${p.title}》尚未抓到原文，只有站内摘要：${p.tldr}`;
+      let secs = ft.sections || [];
+      if (section) {
+        const k = String(section).toLowerCase();
+        const hit = secs.filter(s => s.title.toLowerCase().includes(k));
+        if (hit.length) secs = hit;
+      }
+      return `标题：${ft.title}\n发表：${p.venue} ${p.year}\n来源：${ft.source}（${ft.via}）\n\n` +
+             `摘要：${ft.abstract}\n\n` +
+             (secs.length ? secs.map(s => `## ${s.title}\n${s.text}`).join("\n\n")
+                          : "（该来源只提供摘要，没有章节级正文）");
+    }
+  },
+
+  read_post: {
+    desc: "读取某篇博客的完整章节结构与开头内容。参数用 site_search 返回的博客 slug 或标题关键词。",
+    args: "slug: 文章 slug 或标题关键词",
+    async run({ slug }) {
+      const k = String(slug || "").toLowerCase();
+      const p = POSTS.find(x => x.slug === k) || POSTS.find(x => x.slug.includes(k)) ||
+                POSTS.find(x => x.title.toLowerCase().includes(k));
+      if (!p) return `没有找到文章「${slug}」。可用 slug：` + POSTS.map(x => x.slug).join(", ");
+      return `标题：${p.title}\n日期：${p.date}\n标签：${(p.tags || []).join(", ")}\n链接：${p.url}\n` +
+             `章节：${(p.headings || []).join(" / ")}\n开头：${p.excerpt || "（无）"}`;
+    }
+  },
+
+  paper_search: {
+    desc: "检索全球公开学术论文（OpenAlex，含 arXiv 预印本）。用于回答本站资料之外的研究进展、相关工作、某个方法出自哪篇论文等问题。",
+    args: "query: 英文检索词；year_from: 可选，起始年份",
+    async run({ query, year_from }) {
+      const q = String(query || "").replace(/[,:]/g, " ").trim();
+      if (!q) return "查询为空。";
+      let filter = `title_and_abstract.search:${q}`;
+      if (year_from) filter += `,publication_year:>${parseInt(year_from, 10) - 1}`;
+      const url = `https://api.openalex.org/works?filter=${encodeURIComponent(filter)}` +
+                  `&per-page=5&mailto=${encodeURIComponent(PROFILE.email)}`;
+      const r = await fetch(url, { signal: withTimeout(9000) });
+      if (!r.ok) throw new Error("OpenAlex HTTP " + r.status);
+      const d = await r.json();
+      if (!d.results?.length) return `OpenAlex 上没有检索到「${q}」相关论文。`;
+      return d.results.map((w, i) => {
+        const inv = w.abstract_inverted_index;
+        let abs = "";
+        if (inv) {
+          const pos = [];
+          for (const [word, ps] of Object.entries(inv)) for (const p of ps) pos[p] = word;
+          abs = pos.filter(Boolean).join(" ").slice(0, 260);
+        }
+        const venue = w.primary_location?.source?.display_name || "preprint";
+        const link = w.best_oa_location?.pdf_url || w.doi || w.id;
+        return `${i + 1}. ${w.title}\n   ${venue}, ${w.publication_year} · ${w.cited_by_count} citations\n` +
+               `   ${link}${abs ? `\n   摘要：${abs}` : ""}`;
+      }).join("\n\n");
+    }
+  },
+
+  wiki: {
+    desc: "查询维基百科词条的定义段落，用于解释概念名词。词条名要精确，歧义词请带限定，例如 Transformer (deep learning architecture)。",
+    args: "term: 词条名；lang: 可选 en（默认）或 zh",
+    async run({ term, lang }) {
+      const host = (lang === "zh" ? "zh" : "en") + ".wikipedia.org";
+      const t = encodeURIComponent(String(term || "").trim().replace(/\s+/g, "_"));
+      if (!t) return "词条为空。";
+      const r = await fetch(`https://${host}/api/rest_v1/page/summary/${t}`, { signal: withTimeout(9000) });
+      if (r.status === 404) return `维基百科（${host}）上没有「${term}」这个词条。`;
+      if (!r.ok) throw new Error("Wikipedia HTTP " + r.status);
+      const d = await r.json();
+      if (d.type === "disambiguation") return `「${term}」是一个消歧义页，请换一个更具体的词条名。`;
+      return `${d.title}\n${(d.extract || "").slice(0, 900)}\n${d.content_urls?.desktop?.page || ""}`;
+    }
+  }
+};
+
+function toolsPrompt() {
+  return `\n\n# 可用工具
+你可以调用下列工具获取额外信息。**只有在现有资料不足以回答时才调用**——关于李勇志的基本信息、论文列表、工作经历，资料里已经有了，不要为此调工具。
+
+${Object.entries(TOOLS).map(([n, t]) => `- ${n}(${t.args})\n  ${t.desc}`).join("\n")}
+
+调用方法：把回复的**第一个字符**就写成工具标签，整条回复只包含这一行，不要有任何其它文字：
+<tool>{"name":"工具名","args":{"参数":"值"}}</tool>
+
+工具结果会以「[工具结果 · 工具名]」开头的消息返回给你，然后你再基于它作答。最多连续调用 ${AGENT_MAX_STEPS} 次工具。如果不需要工具，就直接正常作答，不要输出工具标签。`;
+}
+
+let busy = false, llmClaimed = false;
+const AGENT_MAX_STEPS = 3;
+let agentEnabled = localStorage.getItem("lyz.agent") !== "off";
+
+function setBusy(b, label) {
+  busy = b;
+  document.body.classList.toggle("busy", b);
+  const el = $("#sb-state");
+  el.textContent = b ? (label || "WORKING") : "READY";
+  el.className = b ? "live" : "";
+}
+
+async function runAgent(userMsg, sub) {
+  if (!LLM.key) {
+    return mod("LLM OFFLINE", `这个终端直接调用 ModelScope 免费推理 API，纯前端、无后端。
+      <div class="dimtxt" style="margin-top:8px;line-height:1.85">
+      1. 到 <a href="https://modelscope.cn/my/myaccesstoken" target="_blank">modelscope.cn</a> 领 SDK Token（免费额度约 2000 次/天）<br>
+      2. 执行 <span class="b acc">config key ms-xxxxxxxx</span> 写入本地<br>
+      3. 上线后 token 会内置在页面里，访客无需任何配置</div>`,
+      { kind: "alert", sub: "AI 功能未配置" });
+  }
+  llmClaimed = true;
+  setBusy(true, "THINKING");
+  const turn = turns() + 1;
+  const box = mod("AI", `<div class="steps"></div><div class="ans lead"></div>`, {
+    kind: "ai", sub, meta: `turn ${turn} · ${LLM.model.split("/").pop()}` });
+  const steps = box.querySelector(".steps"), ans = box.querySelector(".ans");
+  const t0 = Date.now(), frames = "▖▘▝▗";
+  let spinTick = 0;
+  const spinner = label => `<span class="spin">${frames[spinTick++ % 4]}</span> <span class="dimtxt">${label}</span>`;
+
+  const hop = [];            // 本轮的工具往返，最后连同问答一起写入长期历史
+  let final = "", ttft = 0, calls = 0, failed = null, tick = null;
+
+  try {
+    for (let step = 1; step <= AGENT_MAX_STEPS + 1; step++) {
+      const msgs = [{ role: "system", content: sysPrompt() },
+                    ...CHAT, { role: "user", content: userMsg }, ...hop];
+      let acc = "", isTool = null, got = false;
+      const label = step === 1
+        ? (turn > 1 ? `continuing ${turns()}-turn context…` : "thinking…")
+        : "reading tool output…";
+      ans.innerHTML = spinner(label);
+      tick = setInterval(() => { if (!got) ans.innerHTML = spinner(label); }, 110);
+
+      /* finally 是必须的：请求抛错时若不停掉这个定时器，它会每 110ms
+         把 spinner 重新写回去，把 catch 里渲染的错误信息冲掉。 */
+      try {
+        await llmStream(msgs, t => {
+          if (!got) { got = true; if (!ttft) ttft = Date.now() - t0; }
+          acc += t;
+          /* 工具调用必须出现在回复开头，所以只要前几个字符不是 "<tool>" 的前缀，
+             就能立刻确定这是普通回答，继续流式渲染，不牺牲首字延迟。 */
+          if (isTool === null) {
+            const head = acc.trimStart(), TAG = "<tool>";
+            if (head.startsWith("<tool")) { isTool = true; }
+            else if (head && !TAG.startsWith(head.slice(0, TAG.length))) { isTool = false; }
+          }
+          if (isTool === false) { ans.innerHTML = esc(acc).replace(/\n/g, "<br>"); scroll(); }
+        });
+      } finally { clearInterval(tick); tick = null; }
+
+      if (!isTool) { final = acc; break; }
+
+      /* ---- 解析并执行工具 ---- */
+      const m = acc.match(/<tool>\s*([\s\S]*?)\s*<\/tool>/) || acc.match(/\{[\s\S]*\}/);
+      let call = null;
+      try { call = JSON.parse(m ? (m[1] ?? m[0]) : acc); } catch {}
+      if (!call?.name || !TOOLS[call.name]) {
+        final = acc.replace(/<\/?tool>/g, "");
+        break;
+      }
+      if (step > AGENT_MAX_STEPS) { failed = "已达到工具调用上限"; break; }
+
+      calls++;
+      const card = document.createElement("div");
+      card.className = "tool";
+      card.dataset.state = "run";
+      const argStr = Object.entries(call.args || {}).map(([k, v]) => `${k}: ${JSON.stringify(v)}`).join("  ");
+      card.innerHTML = `<div class="tool-head"><span class="tool-ic">▶</span>
+        <span class="tool-name">${esc(call.name)}</span>
+        <span class="tool-arg">${esc(argStr)}</span><span class="tool-time">running…</span></div>
+        <div class="tool-out"></div>`;
+      steps.appendChild(card); scroll();
+
+      const ts = Date.now();
+      let out;
+      try { out = await TOOLS[call.name].run(call.args || {}); }
+      catch (err) { out = `工具执行失败：${err.name === "AbortError" ? "请求超时" : err.message}`; }
+      out = String(out ?? "").slice(0, 2600);
+
+      card.dataset.state = "done";
+      card.querySelector(".tool-ic").textContent = "✓";
+      card.querySelector(".tool-time").textContent = ((Date.now() - ts) / 1000).toFixed(1) + "s";
+      const outEl = card.querySelector(".tool-out");
+      outEl.textContent = out;
+      if (out.length > 300) {
+        outEl.classList.add("clip");
+        const more = document.createElement("span");
+        more.className = "act"; more.style.fontSize = "11.5px";
+        more.textContent = `展开完整结果（${out.length} 字符）`;
+        more.onclick = () => { outEl.classList.toggle("clip");
+          more.textContent = outEl.classList.contains("clip") ? `展开完整结果（${out.length} 字符）` : "收起"; };
+        card.appendChild(more);
+      }
+      scroll();
+
+      hop.push({ role: "assistant", content: acc },
+               { role: "user", content: `[工具结果 · ${call.name}]\n${out}` });
+    }
+
+    if (!final && !failed) failed = "模型没有返回内容";
+    if (failed) ans.innerHTML = `<span class="err">${esc(failed)}。</span>`;
+    else {
+      pushContext("user", userMsg, 0);
+      hop.forEach(m => pushContext(m.role, m.content, 0));
+      pushContext("assistant", final, 0);
+      box.querySelector(".mod-meta").textContent =
+        `turn ${turns()} · ${calls ? calls + " tool" + (calls > 1 ? "s" : "") + " · " : ""}` +
+        `${((Date.now() - t0) / 1000).toFixed(1)}s · ttft ${(ttft / 1000).toFixed(1)}s`;
+    }
+  } catch (e) {
+    ans.innerHTML = `<span class="err">调用失败：${esc(e.message)}</span>
+      <div class="dimtxt" style="margin-top:5px">检查 token 是否有效，或用 <span class="act" data-cmd="model">model</span> 换一个。</div>`;
+  } finally {
+    if (tick) clearInterval(tick);
+    setBusy(false);
+  }
+}
+
+/* ============================================================
+   5. COMMANDS
+   ============================================================ */
+const CMD = {}, ORDER = [];
+const def = (name, meta, run) => { CMD[name] = { name, ...meta, run }; ORDER.push(name); };
+
+def("whoami", { desc: "他是谁", group: "content" }, () => {
+  const box = mod("IDENTITY", `
+    <div class="pix-inline">
+      <canvas class="pxa"></canvas>
+      <div class="lead" style="flex:1;min-width:250px">${esc(PROFILE.bio)}</div>
+    </div>
+    <div class="kv">
+      <span class="k">NAME</span><span class="b">${esc(PROFILE.name)}</span>
+      <span class="k">ROLE</span><span>${esc(PROFILE.role)}</span>
+      <span class="k">ORG</span><span>${esc(PROFILE.org)}</span>
+      <span class="k">EDUCATION</span><span>Peking University (M.S., advised by <a href="${PROFILE.advisor.url}" target="_blank">${PROFILE.advisor.name}</a>) · Wuhan University (B.S., rank 1/38)</span>
+      <span class="k">FOCUS</span><span>Multimodal Generation · LLM Agents · Generative Recommendation</span>
+      <span class="k">OUTPUT</span><span>${PAPERS.length} papers &amp; preprints · ${SCHOLAR.citations} citations · h-index ${SCHOLAR.hIndex} · ${POSTS.length} notes</span>
+      <span class="k">LOCATION</span><span>${esc(PROFILE.location)}</span>
+    </div>
+    <div class="chips" style="margin-top:13px">
+      <button class="chip" data-cmd="pub">publications</button>
+      <button class="chip" data-cmd="exp">experience</button>
+      <button class="chip" data-cmd="ask 他最近在做什么方向">ask AI</button>
+    </div>`, { sub: PROFILE.role, meta: PROFILE.location });
+  animateIn(box.querySelector(".pxa"), PIX.mode);
+});
+CMD.about = CMD.whoami;
+
+/* progressive resolution reveal for any canvas in the stream */
+function animateIn(cv, mode) {
+  if (!cv) return;
+  PIX.STEPS.forEach((r, i) => setTimeout(() => PIX.draw(cv, { mode, res: r }), i * 62));
+  STREAM_CANVASES.push({ cv, mode });
+}
+const STREAM_CANVASES = [];
+
+def("avatar", { desc: "像素肖像 [模式]", usage: "avatar [mode]", group: "look" }, args => {
+  const m = args[0] && PIX.MODES.includes(args[0]) ? args[0] : PIX.mode;
+  if (args[0]) PIX.setMode(m);
+  const box = mod("PIXEL PORTRAIT", `
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+      <canvas class="pxa pix-big"></canvas>
+      <div style="flex:1;min-width:260px">
+        <div class="dimtxt" style="font-size:13px;line-height:1.75">
+          这张肖像不是照片，是一份 ${PIX.W}×${PIX.H} 的量化数据在浏览器里重绘出来的。
+          构建时照片被压成 ${(PIX.W * PIX.H / 1000).toFixed(1)}k 个亮度值和一张 16 色调色板，
+          页面上不再加载任何原图。
+        </div>
+        <div class="kv" style="margin-top:11px">
+          <span class="k">SOURCE</span><span>${PIX.W}×${PIX.H} · 16 levels · 16 colors</span>
+          <span class="k">MODE</span><span class="acc">${m}</span>
+          <span class="k">PIPELINE</span><span>unsharp → lanczos → median-cut</span>
+        </div>
+        <div class="chips" style="margin-top:12px">
+          ${PIX.MODES.map(x => `<button class="chip" data-cmd="avatar ${x}">${x}</button>`).join("")}
+        </div>
+        <div class="dimtxt" style="margin-top:9px;font-size:12px">
+          duotone 跟随站点主题着色 · dither 是 4×4 Bayer 有序抖动 · 侧栏头像点一下也能切换
+        </div>
+      </div>
+    </div>`, { kind: "sys", sub: "rebuilt from quantised data", meta: `${PIX.W}×${PIX.H}` });
+  animateIn(box.querySelector(".pxa"), m);
+});
+
+def("pub", { desc: "论文列表 [年份|会议|关键词]", usage: "pub [filter]", group: "content" }, args => {
+  const q = args.join(" ").toLowerCase().trim();
+  let list = PAPERS;
+  if (q) list = PAPERS.filter(p => String(p.year) === q || p.venue.toLowerCase() === q ||
+    p.title.toLowerCase().includes(q) || p.tags.some(t => t.includes(q)));
+  if (!list.length) return mod("NO MATCH", `没有匹配 "<span class="b">${esc(q)}</span>" 的论文。
+    <div class="chips" style="margin-top:8px">${["cvpr","2026","video","diffusion","multimodal"].map(t =>
+      `<button class="chip" data-cmd="pub ${t}">pub ${t}</button>`).join("")}</div>`, { kind: "alert" });
+
+  const byYear = {};
+  list.forEach(p => (byYear[p.year] ||= []).push(p));
+  let i = 0, h = "";
+  Object.keys(byYear).sort((a, b) => b - a).forEach(y => {
+    h += `<div class="band">${y} <span class="dimtxt">· ${byYear[y].length}</span></div>`;
+    h += byYear[y].map(p => {
+      const links = [];
+      if (p.links?.pdf) links.push(`<a href="${p.links.pdf}" target="_blank">pdf</a>`);
+      links.push(`<span class="act" data-cmd="paper ${p.id}">details</span>`,
+                 `<span class="act" data-cmd="explain ${p.id}">explain</span>`,
+                 `<span class="act" data-cmd="cite ${p.id}">cite</span>`);
+      return `<div class="card"><div class="idx">${String(++i).padStart(2, "0")}</div><div class="body">
+        <div style="margin-bottom:3px"><span class="venue ${p.preprint ? "pre" : p.year < 2022 ? "old" : ""}">${p.venue} ${p.year}</span>
+          ${p.oral ? '<span class="oral">ORAL</span>' : ""}
+          ${p.preprint ? '<span class="tag">preprint</span>' : ""}
+          ${p.first ? '<span class="tag">1st author</span>' : p.corr ? '<span class="tag">corresponding</span>' : ""}
+          ${p.cites ? `<span class="cites">${p.cites} citations</span>` : ""}
+          ${FULLTEXT[p.id]?.sections?.length ? '<span class="tag" style="border-color:var(--ok);color:var(--ok)">full text</span>' : ""}</div>
+        <div class="t">${esc(p.title)}</div>
+        <div class="m">${authorLine(p.authors)}</div>
+        <div class="m" style="margin-top:3px">${links.join(' <span class="dimtxt">·</span> ')}</div>
+      </div></div>`;
+    }).join("");
+  });
+  h += `<div class="dimtxt" style="margin-top:11px;font-size:12px">
+    <span class="amb">${SCHOLAR.citations}</span> citations ·
+    <span class="amb">h-index ${SCHOLAR.hIndex}</span> ·
+    <span class="amb">i10 ${SCHOLAR.i10}</span> —
+    <a href="${PROFILE.scholar}" target="_blank">Google Scholar ↗</a> ·
+    需要原文可 <span class="act" data-cmd="contact">邮件联系</span></div>`;
+  mod("PUBLICATIONS", h, {
+    sub: q ? `filter = "${esc(q)}"` : `${PAPERS.filter(x=>!x.preprint).length} peer-reviewed + ${PAPERS.filter(x=>x.preprint).length} preprints`,
+    meta: `${list.length} / ${PAPERS.length}` });
+});
+CMD.publication = CMD.pub; CMD.papers = CMD.pub;
+
+const findPaper = k => {
+  if (!k) return null;
+  const s = k.toLowerCase();
+  return PAPERS.find(p => p.id === s) || PAPERS.find(p => p.id.includes(s)) ||
+         PAPERS[parseInt(s, 10) - 1] || PAPERS.find(p => p.title.toLowerCase().includes(s));
+};
+
+def("paper", { desc: "查看单篇论文", usage: "paper <id|n>", group: "content" }, args => {
+  const p = findPaper(args[0]);
+  if (!p) return mod("USAGE", `paper &lt;id|number&gt; — 例如 <span class="act" data-cmd="paper 1">paper 1</span>
+    或 <span class="act" data-cmd="paper autocut">paper autocut</span>`, { kind: "alert" });
+  mod("PAPER", `
+    <div style="margin-bottom:7px"><span class="venue">${p.venue} ${p.year}</span> ${p.oral ? '<span class="oral">ORAL</span>' : ""}</div>
+    <div class="b" style="font-size:15.5px;line-height:1.45;max-width:78ch">${esc(p.title)}</div>
+    <div class="m dimtxt" style="margin:6px 0 11px;font-size:12.5px">${authorLine(p.authors)}</div>
+    <div class="kv">
+      <span class="k">TL;DR</span><span>${esc(p.tldr)}</span>
+      <span class="k">TOPICS</span><span>${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</span>
+      <span class="k">ROLE</span><span>${p.first ? "first author" : p.corr ? "corresponding author" : "co-author"}</span>
+      ${p.cites ? `<span class="k">CITATIONS</span><span class="amb">${p.cites}</span>` : ""}
+      ${FULLTEXT[p.id] ? `<span class="k">FULL TEXT</span><span class="${FULLTEXT[p.id].sections?.length ? "ok" : "dimtxt"}">${
+        FULLTEXT[p.id].sections?.length ? `${FULLTEXT[p.id].sections.length} 节原文已缓存` : "仅摘要"} · ${FULLTEXT[p.id].via}</span>` : ""}
+      ${p.links?.pdf ? `<span class="k">PDF</span><span><a href="${p.links.pdf}" target="_blank">open ↗</a></span>` : ""}
+      ${p.links?.arxiv ? `<span class="k">ARXIV</span><span><a href="${p.links.arxiv}" target="_blank">preprint ↗</a></span>` : ""}
+    </div>
+    <div class="chips" style="margin-top:12px">
+      <button class="chip" data-cmd="explain ${p.id}">explain (engineer)</button>
+      <button class="chip" data-cmd="explain ${p.id} --eli5">explain (eli5)</button>
+      <button class="chip" data-cmd="cite ${p.id}">bibtex</button>
+      <button class="chip" data-cmd="pub ${p.tags[0]}">related</button>
+    </div>`, { sub: p.id, meta: `${p.venue} ${p.year}` });
+});
+
+def("explain", { desc: "AI 解读论文（带原文）", usage: "explain <id> [--eli5]", group: "ai" }, args => {
+  const eli5 = args.includes("--eli5");
+  const p = findPaper(args.filter(a => !a.startsWith("--"))[0]);
+  if (!p) return mod("USAGE", `explain &lt;paper-id&gt; [--eli5]`, { kind: "alert" });
+
+  /* 原文直接随问题注入，省掉一次工具往返；深挖某一章节时模型再自己调 read_paper */
+  const ft = FULLTEXT[p.id];
+  let src = "", note = "";
+  if (ft) {
+    const secs = (ft.sections || [])
+      .map(s => `## ${s.title}\n${s.text.slice(0, 620)}`).join("\n\n");
+    src = `\n\n以下是这篇论文的原文摘录（构建期抓自 ${ft.source}）：\n` +
+          `摘要：${ft.abstract}\n\n${secs}`.slice(0, 6400);
+    note = ft.sections?.length ? `原文 ${ft.sections.length} 节` : "仅摘要";
+  } else {
+    note = "无原文，仅站内信息";
+  }
+
+  runAgent(`请解读这篇论文：《${p.title}》（${p.venue} ${p.year}，主题：${p.tags.join("、")}）。
+${eli5 ? "讲给没有机器学习背景的人听，多用类比，不要公式，控制在 5 句以内"
+       : "讲给懂深度学习的工程师听，可以用术语。依次说清：要解决什么问题、核心方法是什么、关键设计取舍、实验说明了什么"}。
+${ft ? "严格依据下面的原文摘录，不要编造原文里没有的细节；摘录不足以回答的部分明确说不确定。"
+     : "站内只有标题和一句话概括，没有原文。请说明这一点，只做方向性介绍，不要编造技术细节。"}${src}`,
+    `${esc(p.id)} · ${eli5 ? "ELI5" : "engineer"} · ${note}`);
+});
+
+def("cite", { desc: "生成 BibTeX", usage: "cite <id|n>", group: "content" }, args => {
+  const p = findPaper(args[0]);
+  if (!p) return mod("USAGE", `cite &lt;id|number&gt;`, { kind: "alert" });
+  const names = p.authors.map(a => a.replace("*", "")).filter(a => a !== "et al.").join(" and ");
+  const bib = `@inproceedings{li${p.year}${p.id.split("-")[0]},
+  title     = {${p.title}},
+  author    = {${names}},
+  booktitle = {${p.venue} ${p.year}},
+  year      = {${p.year}}
+}`;
+  const box = mod("BIBTEX", `<pre class="bib">${esc(bib)}</pre>
+    <div style="margin-top:7px"><span class="act" id="cpbib">copy to clipboard</span></div>`,
+    { kind: "meta", sub: p.id });
+  box.querySelector("#cpbib").onclick = e => {
+    navigator.clipboard.writeText(bib);
+    e.target.textContent = "✓ copied"; e.target.className = "ok";
+  };
+});
+
+def("exp", { desc: "工作经历时间线", group: "content" }, () => {
+  mod("EXPERIENCE", `<div class="tl">` + EXPERIENCE.map(e => `
+    <div class="tl-item ${e.now ? "now" : ""}">
+      <div class="tl-when">${esc(e.when)}${e.now ? ' <span class="ok">● CURRENT</span>' : ""}</div>
+      <div><span class="tl-role">${esc(e.role)}</span></div>
+      <div class="tl-org">${esc(e.org)}</div>
+      <ul>${e.bullets.map(b => `<li>${esc(b)}</li>`).join("")}</ul>
+    </div>`).join("") + `</div>`,
+    { sub: "Kuaishou ← ByteDance ← Alibaba ← Tencent", meta: `${EXPERIENCE.length} positions` });
+});
+CMD.experience = CMD.exp; CMD.career = CMD.exp;
+
+def("edu", { desc: "教育背景", group: "content" }, () => {
+  mod("EDUCATION", EDUCATION.map((e, i) => `<div class="card">
+    <div class="idx">${String(i + 1).padStart(2, "0")}</div><div class="body">
+    <div class="t">${esc(e.school)} <span class="dimtxt" style="font-size:12px">· ${esc(e.when)}</span></div>
+    <div class="m">${esc(e.degree)}</div><div class="m amb">${esc(e.note)}</div></div></div>`).join(""),
+    { kind: "meta" });
+});
+
+def("research", { desc: "研究方向", group: "content" }, () => {
+  mod("RESEARCH AREAS", RESEARCH.map(r => `
+    <div class="band">${esc(r.k)}</div>
+    <ul style="margin:0 0 4px 17px;color:var(--dim);font-size:13px;line-height:1.75">
+      ${r.v.map(x => `<li>${esc(x)}</li>`).join("")}</ul>`).join(""),
+    { meta: `${RESEARCH.length} tracks` });
+});
+
+def("projects", { desc: "开源项目", group: "content" }, () => {
+  mod("PROJECTS", PROJECTS.map((p, i) => `<div class="card">
+    <div class="idx">${String(i + 1).padStart(2, "0")}</div><div class="body">
+    <div class="t">${esc(p.name)}</div><div class="m">${esc(p.desc)}</div>
+    <div class="m"><a href="${p.url}" target="_blank">${esc(p.url.replace("https://github.com/", "github/"))}</a></div>
+    </div></div>`).join(""), { meta: `${PROJECTS.length} repos` });
+});
+
+def("blog", { desc: "技术文章 [标签]", usage: "blog [tag]", group: "content" }, args => {
+  const q = args.join(" ").toLowerCase().trim();
+  const list = q ? POSTS.filter(p => p.tags.some(t => t.toLowerCase().includes(q)) ||
+    p.title.toLowerCase().includes(q) || (p.excerpt || "").toLowerCase().includes(q)) : POSTS;
+  if (!list.length) return mod("NO MATCH", `没有匹配 "${esc(q)}" 的文章`, { kind: "alert" });
+  mod("WRITING", list.map((p, i) => `<div class="card">
+    <div class="idx">${String(i + 1).padStart(2, "0")}</div><div class="body">
+    <div class="m" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="amb">${p.date}</span>
+      ${p.headings?.length ? `<span class="dimtxt" style="font-size:11px">${p.headings.length} sections</span>` : ""}
+      ${p.rich ? '<span class="tag" style="border-color:var(--violet);color:var(--violet)">interactive</span>' : ""}
+      ${p.warn ? `<span class="tag" style="border-color:var(--accent);color:var(--accent)">${esc(p.warn)}</span>` : ""}
+    </div>
+    <div class="t">${esc(p.title)}</div>
+    ${p.excerpt ? `<div class="m" style="margin:2px 0 3px;line-height:1.6">${esc(p.excerpt.slice(0, 108))}…</div>` : ""}
+    <div class="m">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div>
+    <div class="m"><a href="${p.url}" target="_blank">read ↗</a>
+      <span class="dimtxt">·</span> <span class="act" data-cmd="ask 用三句话总结这篇文章：${esc(p.title)}">summarize</span></div>
+    </div></div>`).join(""),
+    { sub: q ? `filter = "${esc(q)}"` : "technical notes", meta: `${list.length} / ${POSTS.length}` });
+});
+CMD.posts = CMD.blog;
+
+def("cv", { desc: "一页纸简历", group: "content" }, () => {
+  mod("CURRICULUM VITAE", `
+    <div class="band">EDUCATION</div>
+    ${EDUCATION.map(e => `<div class="dimtxt" style="font-size:13px">· ${esc(e.school)} — ${esc(e.degree)}, ${esc(e.when)}</div>`).join("")}
+    <div class="band">EXPERIENCE</div>
+    ${EXPERIENCE.map(e => `<div class="dimtxt" style="font-size:13px">· <span class="amb">${esc(e.when)}</span> ${esc(e.role)}, ${esc(e.org)}</div>`).join("")}
+    <div class="band">PUBLICATIONS</div>
+    <div class="dimtxt" style="font-size:13px">· ${PAPERS.length} peer-reviewed papers, ${PAPERS.filter(p=>p.year>=2026).length} accepted in 2026 — <span class="act" data-cmd="pub">list them</span></div>
+    <div class="band">ACADEMIC SERVICE</div>
+    ${SERVICE.map(s => `<div class="dimtxt" style="font-size:13px">· ${esc(s)}</div>`).join("")}
+    <div class="band">SKILLS</div>
+    <div>${SKILLS.map(s => `<span class="tag">${esc(s)}</span>`).join("")}</div>
+    <div style="margin-top:13px"><a href="${PROFILE.site}/files/pdf/lyz_resume.pdf" target="_blank">download resume.pdf ↗</a></div>`,
+    { kind: "meta", sub: "condensed" });
+});
+CMD.resume = CMD.cv;
+
+def("contact", { desc: "联系方式", group: "content" }, () => {
+  mod("CONTACT", `<div class="kv">
+    <span class="k">EMAIL</span><span><a href="mailto:${PROFILE.email}">${PROFILE.email}</a></span>
+    <span class="k">WECHAT</span><span>${PROFILE.wechat}</span>
+    <span class="k">GITHUB</span><span><a href="${PROFILE.github}" target="_blank">muziyongshixin ↗</a></span>
+    <span class="k">SCHOLAR</span><span><a href="${PROFILE.scholar}" target="_blank">citation profile ↗</a></span>
+    <span class="k">LINKEDIN</span><span><a href="${PROFILE.linkedin}" target="_blank">yongzhi li ↗</a></span>
+    <span class="k">LOCATION</span><span>${esc(PROFILE.location)}</span></div>`, { kind: "meta" });
+});
+CMD.links = CMD.contact; CMD.email = CMD.contact;
+
+def("ask", { desc: "向 AI 提问", usage: "ask <question>", group: "ai" }, args => {
+  const q = args.join(" ").trim();
+  if (!q) return mod("ASK", `向这个站点的 AI 助理提问，它只依据本站资料回答。
+    <div class="chips" style="margin-top:9px">
+      <button class="chip" data-cmd="ask 他在视频生成方向具体做了哪些工作">视频生成做了什么</button>
+      <button class="chip" data-cmd="ask 他的工业界经历和学术研究是怎么结合的">工业与学术如何结合</button>
+      <button class="chip" data-cmd="ask What is his experience with LLM post-training?">LLM post-training</button>
+      <button class="chip" data-cmd="ask 如果要和他合作，哪些方向最匹配">适合什么合作</button>
+      <button class="chip" data-cmd="ask 2026 年少步视频生成有哪些代表性论文？和他的工作有什么关系">联网检索论文</button>
+    </div>`, { kind: "ai" });
+  runAgent(q, esc(q));
+});
+CMD.q = CMD.ask;
+
+def("config", { desc: "配置 ModelScope token", usage: "config key <token>", group: "ai" }, args => {
+  if (args[0] === "key" && args[1]) {
+    LLM.key = args[1]; updateLLMStatus();
+    return mod("CONFIG", `<span class="ok">✓ token 已写入 localStorage</span>
+      <div style="margin-top:6px" class="dimtxt">试试 <span class="act" data-cmd="ask 他最近的研究重点是什么">ask …</span></div>`, { kind: "sys" });
+  }
+  if (args[0] === "clear") { localStorage.removeItem("lyz.mskey"); updateLLMStatus(); return mod("CONFIG", `<span class="ok">✓ token cleared</span>`, { kind: "sys" }); }
+  mod("LLM CONFIG", `<div class="kv">
+    <span class="k">PROVIDER</span><span>ModelScope API-Inference（OpenAI 兼容）</span>
+    <span class="k">ENDPOINT</span><span class="dimtxt" style="font-size:12px">${LLM.endpoint}</span>
+    <span class="k">MODEL</span><span>${esc(LLM.model)}</span>
+    <span class="k">TOKEN</span><span>${LLM.key ? `<span class="ok">已配置 (${esc(LLM.key.slice(0,6))}…)</span>` : `<span class="err">未设置</span>`}</span>
+    <span class="k">CORS</span><span class="ok">已验证 · Access-Control-Allow-Origin: *</span>
+    <span class="k">CONTEXT</span><span>${turns()} 轮对话 · ${(CHAT.reduce((a,m)=>a+m.content.length,0)/1000).toFixed(1)}k / ${CHAT_BUDGET/1000}k chars</span>
+  </div>
+  <div class="dimtxt" style="margin-top:9px;font-size:12.5px">config key &lt;token&gt; 写入 · config clear 清除 · <span class="act" data-cmd="model">model</span> 换模型</div>`,
+  { kind: "sys" });
+});
+
+def("agent", { desc: "工具调用开关 / 查看工具", usage: "agent [on|off]", group: "ai" }, args => {
+  if (args[0] === "on" || args[0] === "off") {
+    agentEnabled = args[0] === "on";
+    localStorage.setItem("lyz.agent", args[0]);
+    return mod("AGENT", `<span class="ok">✓ 工具调用已${agentEnabled ? "开启" : "关闭"}</span>
+      <div class="dimtxt" style="margin-top:5px;font-size:12.5px">${agentEnabled
+        ? "AI 在资料不足时会自行检索，最多连续调用 " + AGENT_MAX_STEPS + " 次。"
+        : "AI 只依据站内资料回答，不再联网。"}</div>`, { kind: "sys" });
+  }
+  mod("AGENT", `
+    <div class="kv" style="margin-bottom:11px">
+      <span class="k">STATUS</span><span class="${agentEnabled ? "ok" : "dimtxt"}">${agentEnabled ? "enabled" : "disabled"}</span>
+      <span class="k">MAX STEPS</span><span>${AGENT_MAX_STEPS} 次连续工具调用</span>
+      <span class="k">PROTOCOL</span><span>模型输出 &lt;tool&gt;{...}&lt;/tool&gt; → 前端执行 → 结果回灌 → 继续生成</span>
+    </div>
+    <div class="band">TOOLS</div>
+    ${Object.entries(TOOLS).map(([n, t]) => `<div class="card"><div class="idx">▪</div><div class="body">
+      <div class="t">${esc(n)}<span class="dimtxt" style="font-size:11.5px">(${esc(t.args)})</span></div>
+      <div class="m">${esc(t.desc)}</div></div></div>`).join("")}
+    <div class="dimtxt" style="margin-top:10px;font-size:12px;line-height:1.7">
+      全部工具都在浏览器里直接发起请求，没有后端代理。
+      arXiv 和 Semantic Scholar 的接口不返回 CORS 头、浏览器无法直连，所以学术检索走
+      <a href="https://openalex.org" target="_blank">OpenAlex</a>（覆盖含 arXiv 预印本）。
+    </div>
+    <div class="chips" style="margin-top:11px">
+      <button class="chip" data-cmd="agent ${agentEnabled ? "off" : "on"}">${agentEnabled ? "关闭工具调用" : "开启工具调用"}</button>
+      <button class="chip" data-cmd="ask 2026 年视频生成加速方面有哪些新论文？">试一个需要联网的问题</button>
+    </div>`, { kind: "sys", meta: `${Object.keys(TOOLS).length} tools` });
+});
+
+def("reset", { desc: "清空 AI 对话上下文", group: "ai" }, () => {
+  const n = turns();
+  CHAT.length = 0;
+  updateLLMStatus();
+  mod("CONTEXT RESET", n
+    ? `已清空 ${n} 轮对话历史。下一次提问会重新开始，不再携带之前的上下文。`
+    : `当前没有对话历史。`, { kind: "sys" });
+});
+
+def("model", { desc: "切换模型", usage: "model <name>", group: "ai" }, args => {
+  if (!args[0]) return mod("MODEL", `current: <span class="b acc">${esc(LLM.model)}</span>
+    <div class="band">AVAILABLE ON MODELSCOPE</div>
+    ${MODELS.map(m => `<div><span class="act" data-cmd="model ${m}">${m}</span>${
+      m === LLM.model ? ' <span class="ok">← current</span>' : ""}</div>`).join("")}
+    <div class="dimtxt" style="margin-top:8px;font-size:12px">任何 ModelScope Model-Id 都能用：<span class="b">model &lt;org/name&gt;</span></div>`,
+    { kind: "sys" });
+  LLM.model = args[0]; localStorage.setItem("lyz.model", args[0]); updateLLMStatus();
+  mod("MODEL", `<span class="ok">✓ model → ${esc(args[0])}</span>${turns()
+    ? `<div class="dimtxt" style="margin-top:5px;font-size:12.5px">${turns()} 轮对话历史保留，但换模型后服务端缓存需要重新建立。想从头开始用 <span class="act" data-cmd="reset">reset</span></div>`
+    : ""}`, { kind: "sys" });
+});
+
+def("theme", { desc: "明暗主题", usage: "theme [dark|light]", group: "look" }, args => {
+  setTheme(args[0] === "light" || args[0] === "dark" ? args[0]
+    : (document.documentElement.dataset.theme === "light" ? "dark" : "light"));
+  mod("THEME", `<span class="ok">✓</span> 配色切换为 <span class="b acc">${document.documentElement.dataset.theme}</span>
+    <span class="dimtxt">· 像素肖像的色阶会跟着主题重绘</span>`, { kind: "sys" });
+});
+def("fx", { desc: "开关扫描线特效", group: "look" }, () => {
+  const off = document.documentElement.dataset.scan === "off";
+  document.documentElement.dataset.scan = off ? "on" : "off";
+  $("#btn-scan").classList.toggle("on", off);
+  mod("FX", `<span class="ok">✓</span> CRT 扫描线已${off ? "开启" : "关闭"}
+    <span class="dimtxt">· 背景马赛克与立方体不受影响</span>`, { kind: "sys" });
+});
+def("reader", { desc: "切到阅读视图", group: "look" }, () => openReader());
+def("classic", { desc: "回到传统版个人主页", group: "look" }, () => {
+  mod("LEAVING", `正在返回传统版个人主页 <span class="acc">${PROFILE.site}</span> …
+    <div class="dimtxt" style="margin-top:5px">没有跳转的话点这里：<a href="/">liyongzhi.xyz</a></div>`, { kind: "sys" });
+  setTimeout(() => { location.href = "/"; }, 700);
+});
+CMD.gui = CMD.reader;
+def("neofetch", { desc: "系统信息卡片", group: "look" }, () => {
+  PIX.decode(0);
+  const yrs = new Date().getFullYear() - 2018;
+  mod("NEOFETCH", `<pre class="ascii">${BANNER}</pre>
+    <div class="kv" style="margin-top:10px">
+      <span class="k">host</span><span>${PROFILE.handle}@liyongzhi.xyz</span>
+      <span class="k">kernel</span><span>portfolio-os 2.0.0</span>
+      <span class="k">shell</span><span>terminal.js + ModelScope</span>
+      <span class="k">uptime</span><span>${yrs} yrs in industry research</span>
+      <span class="k">papers</span><span>${PAPERS.length} (${PAPERS.filter(p=>p.year>=2026).length} in 2026)</span>
+      <span class="k">notes</span><span>${POSTS.length}</span>
+      <span class="k">theme</span><span>${document.documentElement.dataset.theme}</span>
+    </div>`, { kind: "sys" });
+});
+def("clear", { desc: "清屏（保留 AI 上下文）", group: "core" }, () => { stream.innerHTML = ""; });
+CMD.cls = CMD.clear;
+
+def("help", { desc: "全部命令", group: "core" }, () => {
+  const label = { content: "CONTENT", ai: "AI", look: "APPEARANCE", core: "CORE" };
+  let h = "";
+  for (const g of ["content", "ai", "look", "core"]) {
+    h += `<div class="band">${label[g]}</div>`;
+    h += ORDER.filter(n => CMD[n].group === g && !CMD[n].hidden).map(n => {
+      const c = CMD[n], u = c.usage || c.name;
+      return `<div style="display:flex;gap:12px"><span class="act" data-cmd="${c.name}" style="min-width:200px">${esc(u)}</span>
+              <span class="dimtxt" style="font-size:12.5px">${esc(c.desc)}</span></div>`;
+    }).join("");
+  }
+  h += `<div class="dimtxt" style="margin-top:12px;font-size:12.5px">左侧命令面板常驻 · TAB 补全 · ↑↓ 历史 · Ctrl+L 清屏 · 任何高亮词可直接点击</div>`;
+  mod("COMMANDS", h, { kind: "sys", meta: `${ORDER.length} commands` });
+});
+
+def("sudo", { desc: "", group: "core", hidden: true }, args => {
+  if (args.join(" ").includes("hire")) return mod("ACCESS GRANTED", `
+    <span class="ok">Permission granted.</span>
+    <div style="margin-top:5px">邮件 <a href="mailto:${PROFILE.email}">${PROFILE.email}</a>，或微信 ${PROFILE.wechat}。</div>`, { kind: "ai" });
+  mod("DENIED", `visitor is not in the sudoers file. This incident has been reported.`, { kind: "alert" });
+});
+
+const BANNER = String.raw`
+██╗   ██╗ ██████╗ ███╗   ██╗ ██████╗ ███████╗██╗  ██╗██╗
+╚██╗ ██╔╝██╔═══██╗████╗  ██║██╔════╝ ╚══███╔╝██║  ██║██║
+ ╚████╔╝ ██║   ██║██╔██╗ ██║██║  ███╗  ███╔╝ ███████║██║
+  ╚██╔╝  ██║   ██║██║╚██╗██║██║   ██║ ███╔╝  ██╔══██║██║
+   ██║   ╚██████╔╝██║ ╚████║╚██████╔╝███████╗██║  ██║██║
+   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝`;
+
+/* ============================================================
+   6. SIDEBAR RENDER
+   ============================================================ */
+function renderSidebar() {
+  const label = { content: "CONTENT", ai: "AI", look: "APPEARANCE", core: "CORE" };
+  let h = "";
+  for (const g of ["content", "ai", "look", "core"]) {
+    const items = ORDER.filter(n => CMD[n].group === g && !CMD[n].hidden);
+    if (!items.length) continue;
+    h += `<div class="cmd-group"><div class="g">${label[g]}</div>` +
+      items.map(n => `<div class="cmd-item" data-cmd="${n}" title="${esc(CMD[n].usage || n)} — ${esc(CMD[n].desc)}">
+        <span class="c">${n}</span><span class="d">${esc(CMD[n].desc)}</span></div>`).join("") + `</div>`;
+  }
+  $("#cmdlist").innerHTML = h;
+  $("#sbfoot").innerHTML =
+    `<a href="${PROFILE.github}" target="_blank">github</a> ·
+     <a href="${PROFILE.scholar}" target="_blank">scholar</a> ·
+     <a href="mailto:${PROFILE.email}">email</a><br>
+     <span style="opacity:.7">${PROFILE.email}</span>`;
+}
+
+const HINTS = [
+  ["ASK ANYTHING", `输入框不只是命令行。任何不是命令的内容都会直接交给 AI 回答，比如 <code>他为什么从字节去了快手</code>。`],
+  ["AGENT", `问到站外的东西时，AI 会自己去 OpenAlex 检索论文、查维基百科，过程会显示在回答上方。<code>agent</code> 看工具列表。`],
+  ["MULTI-TURN", `AI 会记住上下文，可以直接追问「那第二篇呢」。<code>reset</code> 清空，<code>clear</code> 只清屏不清记忆。`],
+  ["FILTER", `试试 <code>pub cvpr</code> 或 <code>pub 2026</code>，论文列表支持按会议、年份、关键词过滤。`],
+  ["AI", `<code>explain autocut</code> 让模型讲解某篇论文，加 <code>--eli5</code> 换成外行版本。`],
+  ["KEYBOARD", `<code>TAB</code> 补全命令，<code>↑ ↓</code> 翻历史，<code>Ctrl+L</code> 清屏。`],
+  ["READER", `不想敲命令？右上角 <code>READER</code> 切换成传统的滚动式主页。`],
+  ["ASK", `<code>ask 他在视频生成上做了什么</code> — 中英文都可以，回答只基于本站资料。`],
+  ["SHARE", `URL 加 <code>?c=pub+cvpr</code> 可以直接打开某条命令的结果，方便分享。`],
+  ["CITE", `<code>cite 1</code> 一键生成 BibTeX 并复制。`]
+];
+/* the prompt teaches itself: cycle example inputs until the visitor types something */
+const PLACEHOLDERS = [
+  "输入 help 查看全部命令…",
+  "输入 pub 列出全部论文…",
+  "输入 exp 看工作经历…",
+  "或者直接提问：他最近在做什么方向？",
+  "试试 pub cvpr 只看 CVPR 的论文…",
+  "试试 explain autocut 让 AI 讲解某篇论文…",
+  "Ask in English too — what is his research about?"
+];
+let phIdx = 0, phTimer = null;
+function rotatePlaceholder() {
+  const bar = $("#promptbar");
+  bar.classList.add("hushed");
+  setTimeout(() => {
+    input.placeholder = PLACEHOLDERS[phIdx++ % PLACEHOLDERS.length];
+    bar.classList.remove("hushed");
+  }, 260);
+}
+function stopPlaceholder() {
+  clearInterval(phTimer); phTimer = null;
+  $("#promptbar").classList.remove("hushed");
+  input.placeholder = "";
+}
+
+let hintIdx = 0;
+function rotateHint() {
+  const [t, b] = HINTS[hintIdx++ % HINTS.length];
+  const el = $("#hintbox");
+  el.style.opacity = 0;
+  setTimeout(() => {
+    el.innerHTML = `<span class="h-t">${t}</span><span class="h-b">${b}</span>`;
+    el.style.transition = "opacity .3s"; el.style.opacity = 1;
+  }, 220);
+}
+
+/* ============================================================
+   7. SHELL LOOP
+   ============================================================ */
+const HISTORY = JSON.parse(localStorage.getItem("lyz.hist") || "[]");
+let hIdx = HISTORY.length;
+
+function exec(line) {
+  const s = line.trim();
+  if (!s) return;
+  stopPlaceholder();
+  raw(`<div class="echo"><span class="ps">visitor@yongzhi ~ $</span><span class="cmd">${esc(s)}</span><span class="rule"></span></div>`);
+  if (HISTORY[HISTORY.length - 1] !== s) {
+    HISTORY.push(s); localStorage.setItem("lyz.hist", JSON.stringify(HISTORY.slice(-60)));
+  }
+  hIdx = HISTORY.length;
+
+  const parts = s.split(/\s+/), name = parts[0].toLowerCase(), cmd = CMD[name];
+  document.querySelectorAll(".cmd-item").forEach(el =>
+    el.classList.toggle("active", el.dataset.cmd === name));
+  const mark = stream.childElementCount;   // 用来圈出这条命令产生的输出
+
+  /* anything that isn't a command is treated as a question for the assistant */
+  if (!cmd) {
+    if (LLM.key) return runAgent(s, esc(s));
+    const near = Object.keys(CMD).filter(k => !CMD[k].hidden && k.startsWith(name[0])).slice(0, 5);
+    return mod("LLM OFFLINE", `<span class="b">${esc(s)}</span> 不是命令，本来会直接交给 AI 回答，但模型还没配置。
+      <div class="dimtxt" style="margin-top:7px;line-height:1.85">
+        到 <a href="https://modelscope.cn/my/myaccesstoken" target="_blank">modelscope.cn</a> 领 SDK Token，
+        然后执行 <span class="b acc">config key ms-xxxxxxxx</span>。<br>
+        ${near.length ? "或者你想执行的是 " + near.map(n => `<span class="act" data-cmd="${n}">${n}</span>`).join(" / ") + "？" : "左侧面板列出了全部命令。"}
+      </div>`, { kind: "alert" });
+  }
+  llmClaimed = false;
+  try { cmd.run(parts.slice(1)); }
+  catch (e) { mod("RUNTIME ERROR", esc(e.message), { kind: "alert" }); }
+
+  /* ask/explain 自己会把这一轮写进历史；其余命令在这里补记 */
+  if (!llmClaimed && LLM.key && !NO_CONTEXT.has(name)) {
+    const rendered = [...stream.children].slice(mark)
+      .map(n => n.innerText || n.textContent || "").join("\n");
+    pushContext("user", s);
+    pushContext("assistant", `[终端输出 · ${name}]\n${rendered}`);
+  }
+}
+/* 这些命令只改变界面状态，写进上下文只会增加噪音 */
+const NO_CONTEXT = new Set(["clear", "cls", "reset", "theme", "fx", "reader", "gui", "classic", "config", "model", "agent", "avatar", "help"]);
+
+const NAMES = () => ORDER.filter(n => !CMD[n].hidden);
+
+/* IME: while composing, hand control back to the native caret and swallow keys —
+   otherwise Enter fires mid-composition and the fake caret desyncs. */
+let composing = false;
+const probe = document.createElement("span");
+probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;top:-9999px";
+document.body.appendChild(probe);
+
+function refresh() {
+  const v = input.value;
+  if (composing) { ghost.textContent = ""; return; }
+  const m = NAMES().find(n => v && n.startsWith(v) && n !== v);
+  ghost.textContent = m ? v + m.slice(v.length) : "";
+  /* place the block caret at the real insertion point, not at the end */
+  const cs = getComputedStyle(input);
+  probe.style.font = cs.font;
+  probe.style.letterSpacing = cs.letterSpacing;
+  probe.textContent = v.slice(0, input.selectionStart ?? v.length);
+  caret.style.left = (probe.offsetWidth - input.scrollLeft) + "px";
+  ghost.style.left = -input.scrollLeft + "px";
+}
+const syncCaret = () => requestAnimationFrame(refresh);
+
+input.addEventListener("input", () => { if (input.value) stopPlaceholder(); refresh(); });
+input.addEventListener("click", syncCaret);
+input.addEventListener("select", syncCaret);
+input.addEventListener("keyup", syncCaret);
+input.addEventListener("compositionstart", () => {
+  composing = true;
+  caret.style.display = "none";
+  input.style.caretColor = "var(--accent)";
+  ghost.textContent = "";
+});
+input.addEventListener("compositionend", () => {
+  composing = false;
+  caret.style.display = "";
+  input.style.caretColor = "transparent";
+  refresh();
+});
+
+input.addEventListener("keydown", e => {
+  /* keyCode 229 is the catch-all some IMEs report while a candidate window is open */
+  if (composing || e.isComposing || e.keyCode === 229) return;
+
+  if (e.key === "Enter") { const v = input.value; input.value = ""; refresh(); if (!busy) exec(v); }
+  else if (e.key === "Tab") {
+    e.preventDefault();
+    const m = NAMES().filter(n => n.startsWith(input.value));
+    if (m.length) { input.value = m[0] + " "; refresh(); }
+  }
+  else if (e.key === "ArrowUp")   { e.preventDefault(); if (hIdx > 0) { input.value = HISTORY[--hIdx] || ""; refresh(); } }
+  else if (e.key === "ArrowDown") { e.preventDefault(); if (hIdx < HISTORY.length - 1) input.value = HISTORY[++hIdx] || ""; else { hIdx = HISTORY.length; input.value = ""; } refresh(); }
+  else if (e.key === "l" && e.ctrlKey) { e.preventDefault(); stream.innerHTML = ""; }
+  else if (e.key === "Escape") { input.value = ""; refresh(); }
+  else syncCaret();
+});
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-cmd]");
+  if (t) { exec(t.dataset.cmd); input.focus(); if (innerWidth <= 960) $("#sidebar").classList.remove("open"); return; }
+  if (!e.target.closest("a, #reader, button, pre, #sidebar")) input.focus();
+});
+
+/* ============================================================
+   8. CHROME
+   ============================================================ */
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem("lyz.theme", t);
+  $("#btn-theme").textContent = t.toUpperCase();
+  /* the portrait is tinted from theme tokens, so every instance must repaint */
+  PIX.repaint();
+  STREAM_CANVASES.forEach(({ cv, mode }) => PIX.draw(cv, { mode, res: PIX.W }));
+  if ($("#reader").classList.contains("show")) PIX.draw($("#rd-pix"), { mode: PIX.mode, res: PIX.W });
+}
+function updateLLMStatus() {
+  const el = $("#sb-llm"), ctx = $("#sb-ctx");
+  if (LLM.key) { el.textContent = "LLM: " + LLM.model.split("/").pop(); el.className = "live"; }
+  else { el.textContent = "LLM: not configured — run `config`"; el.className = ""; }
+  const ag = $("#sb-agent");
+  ag.textContent = agentEnabled ? `AGENT: ${Object.keys(TOOLS).length} tools` : "AGENT: off";
+  ag.className = agentEnabled ? "live" : "";
+  const n = turns();
+  ctx.textContent = n ? `CTX: ${n} turn${n > 1 ? "s" : ""} · ${
+    (CHAT.reduce((a, m) => a + m.content.length, 0) / 1000).toFixed(1)}k chars` : "CTX: empty";
+  ctx.className = n ? "live" : "";
+}
+$("#btn-theme").onclick  = () => setTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
+$("#btn-scan").onclick   = () => CMD.fx.run([]);
+$("#btn-reader").onclick = () => openReader();
+$("#btn-menu").onclick   = () => $("#sidebar").classList.toggle("open");
+
+/* ============================================================
+   9. READER
+   ============================================================ */
+function openReader() {
+  $("#rd-body").innerHTML = readerHTML();
+  $("#reader").classList.add("show");
+  $("#reader").scrollTop = 0;
+  $("#rd-close").onclick = () => { $("#reader").classList.remove("show"); input.focus(); };
+  $("#reader").querySelectorAll("nav a").forEach(a =>
+    a.onclick = () => document.getElementById(a.dataset.to)?.scrollIntoView({ behavior: "smooth" }));
+  const rp = $("#rd-pix");
+  PIX.STEPS.slice(2).forEach((r, i) => setTimeout(() => PIX.draw(rp, { mode: PIX.mode, res: r }), i * 70));
+  rp.onclick = () => { PIX.cycle(); PIX.draw(rp, { mode: PIX.mode, res: PIX.W }); };
+}
+function readerHTML() {
+  const nav = [["about","About"],["research","Research"],["pubs","Publications"],
+               ["exp","Experience"],["projects","Projects"],["writing","Writing"],["contact","Contact"]];
+  return `
+  <div class="rd-top">
+    <span class="b">${esc(PROFILE.name)}</span>
+    <nav>${nav.map(([id, l]) => `<a data-to="rd-${id}">${l}</a>`).join("")}</nav>
+    <span style="flex:1"></span>
+    <a class="tb-btn" href="/" style="margin-right:8px">← CLASSIC SITE</a>
+    <button class="tb-btn" id="rd-close">← TERMINAL</button>
+  </div>
+
+  <div class="rd-hero">
+    <canvas id="rd-pix" title="点击切换渲染模式"
+            style="width:158px;aspect-ratio:3/4;image-rendering:pixelated;border:1px solid var(--line);cursor:pointer"></canvas>
+    <div style="flex:1;min-width:280px">
+      <div class="rd-h1">${esc(PROFILE.role)}<br><span class="acc">${esc(PROFILE.org)}</span></div>
+      <div class="rd-sub">${esc(PROFILE.bio)}</div>
+    </div>
+  </div>
+
+  <div class="rd-grid" style="margin-bottom:42px">
+    <div class="stat"><div class="n">${PAPERS.length}</div><div class="l">PAPERS &amp; PREPRINTS</div></div>
+    <div class="stat"><div class="n">${SCHOLAR.citations}</div><div class="l">CITATIONS · H-INDEX ${SCHOLAR.hIndex}</div></div>
+    <div class="stat"><div class="n">${POSTS.length}</div><div class="l">TECHNICAL NOTES</div></div>
+    <div class="stat"><div class="n">${esc(PROFILE.impact.value)}</div><div class="l">${esc(PROFILE.impact.label)}</div></div>
+  </div>
+
+  <div class="rd-sec" id="rd-about"><h2>ABOUT</h2>
+    <div class="rd-p">硕士毕业于北京大学，导师 <a href="${PROFILE.advisor.url}" target="_blank">${PROFILE.advisor.name}</a>；本科毕业于武汉大学计算机专业，GPA 3.83/4.0，专业排名 1/38。</div>
+    <div class="rd-p">研究兴趣覆盖计算机视觉、多模态学习、大语言模型、AI Agent、AIGC 与推荐系统。</div>
+    <div class="band" style="margin-top:20px">RECENT · ${recentLine()}</div>
+    ${recentPapers().map(p => `<div class="card"><div class="idx">▪</div><div class="body">
+      <div class="t">${esc(p.title)}</div><div class="m">${p.venue} ${p.year}</div></div></div>`).join("")}
+  </div>
+
+  <div class="rd-sec" id="rd-research"><h2>RESEARCH AREAS</h2>
+    ${RESEARCH.map(r => `<div style="margin-bottom:17px"><div class="amb">${esc(r.k)}</div>
+      <ul style="margin-left:17px;color:var(--dim);font-size:13.5px;line-height:1.75">
+        ${r.v.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}
+  </div>
+
+  <div class="rd-sec" id="rd-pubs"><h2>PUBLICATIONS</h2>
+    ${PAPERS.map((p, i) => `<div class="card"><div class="idx">${String(i+1).padStart(2,"0")}</div><div class="body">
+      <div><span class="venue ${p.preprint ? "pre" : p.year < 2022 ? "old" : ""}">${p.venue} ${p.year}</span> ${p.oral ? '<span class="oral">ORAL</span>' : ""} ${p.cites ? `<span class="cites">${p.cites} citations</span>` : ""}</div>
+      <div class="t" style="margin:3px 0 1px">${esc(p.title)}</div>
+      <div class="m">${authorLine(p.authors)}</div>
+      ${p.links?.pdf ? `<div class="m"><a href="${p.links.pdf}" target="_blank">pdf ↗</a></div>` : ""}
+    </div></div>`).join("")}
+  </div>
+
+  <div class="rd-sec" id="rd-exp"><h2>EXPERIENCE</h2>
+    <div class="tl">${EXPERIENCE.map(e => `<div class="tl-item ${e.now ? "now" : ""}">
+      <div class="tl-when">${esc(e.when)}</div>
+      <div class="tl-role">${esc(e.role)}</div><div class="tl-org">${esc(e.org)}</div>
+      <ul>${e.bullets.map(b => `<li>${esc(b)}</li>`).join("")}</ul></div>`).join("")}</div>
+  </div>
+
+  <div class="rd-sec" id="rd-projects"><h2>PROJECTS</h2>
+    ${PROJECTS.map((p, i) => `<div class="card"><div class="idx">${String(i+1).padStart(2,"0")}</div><div class="body">
+      <div class="t">${esc(p.name)}</div><div class="m">${esc(p.desc)}</div>
+      <div class="m"><a href="${p.url}" target="_blank">${esc(p.url.replace("https://github.com/", "github/"))} ↗</a></div>
+      </div></div>`).join("")}
+  </div>
+
+  <div class="rd-sec" id="rd-writing"><h2>WRITING</h2>
+    ${POSTS.map(p => `<div class="card"><div class="idx">▪</div><div class="body">
+      <div class="m amb">${p.date}</div>
+      <div class="t"><a href="${p.url}" target="_blank">${esc(p.title)}</a></div>
+      ${p.excerpt ? `<div class="m" style="line-height:1.6">${esc(p.excerpt.slice(0, 130))}…</div>` : ""}
+      <div class="m">${p.tags.map(t => `<span class="tag">${esc(t)}</span>`).join("")}</div></div></div>`).join("")}
+  </div>
+
+  <div class="rd-sec" id="rd-contact"><h2>CONTACT</h2>
+    <div class="kv" style="font-size:14px">
+      <span class="k">EMAIL</span><span><a href="mailto:${PROFILE.email}">${PROFILE.email}</a></span>
+      <span class="k">WECHAT</span><span>${PROFILE.wechat}</span>
+      <span class="k">GITHUB</span><span><a href="${PROFILE.github}" target="_blank">muziyongshixin ↗</a></span>
+      <span class="k">SCHOLAR</span><span><a href="${PROFILE.scholar}" target="_blank">Google Scholar ↗</a></span>
+    </div>
+  </div>`;
+}
+
+/* ============================================================
+   10. BOOT
+   ============================================================ */
+const BOOT = [
+  ["init", "portfolio kernel 2.0.0 · build " + new Date().toISOString().slice(0, 10)],
+  ["load", `profile · ${PAPERS.length} publications · ${EXPERIENCE.length} positions · ${POSTS.length} notes`],
+  ["net",  "modelscope api-inference — cors ok"],
+  ["ok",   "session ready"]
+];
+
+async function boot() {
+  setTheme(localStorage.getItem("lyz.theme") || "dark");
+  document.documentElement.dataset.scan = "on";
+  $("#btn-scan").classList.add("on");
+  renderSidebar();
+  rotateHint(); setInterval(rotateHint, 7000);
+  rotatePlaceholder(); phTimer = setInterval(rotatePlaceholder, 4200);
+  updateLLMStatus();
+  refresh();
+  PIX.setMode(PIX.mode); PIX.decode(260);
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const line = raw(`<div class="dimtxt" style="font-size:12.5px;margin-bottom:14px"></div>`).firstElementChild;
+  for (const [tag, msg] of BOOT) {
+    const c = tag === "ok" ? "ok" : tag === "net" ? "inf" : "amb";
+    line.innerHTML += `<div><span class="${c}">[${tag.padEnd(4)}]</span> ${esc(msg)}</div>`;
+    scroll(); await sleep(110);
+  }
+  await sleep(100);
+
+  mod("START HERE", `
+    <pre class="ascii">${BANNER}</pre>
+    <div class="dimtxt" style="font-size:12.5px;margin:6px 0 18px">${esc(PROFILE.name)} · ${esc(PROFILE.role)} · ${esc(PROFILE.org)}</div>
+
+    <div class="intro-big">这是一个<span class="acc">用打字来浏览</span>的个人主页</div>
+    <div class="intro-sub">论文、工作经历、开源项目、技术博客——所有内容都藏在命令后面。
+      在页面最下方的输入框里敲一个词，它就会把对应的信息展开给你。</div>
+
+    <div class="howto">
+      <div class="how">
+        <div class="how-n">01</div>
+        <div class="how-t">输入命令</div>
+        <div class="how-d">试试 <code>pub</code> 看论文、<code>exp</code> 看经历、<code>help</code> 看全部。
+          左侧面板列着所有命令，点一下等于替你输入。</div>
+      </div>
+      <div class="how">
+        <div class="how-n">02</div>
+        <div class="how-t">或者直接提问</div>
+        <div class="how-d">不是命令的内容会交给 AI，它读过本站的全部资料，
+          可以中英文追问，比如「他在视频生成上做过什么」。</div>
+      </div>
+      <div class="how">
+        <div class="how-n">03</div>
+        <div class="how-t">不想敲字</div>
+        <div class="how-d">点下面这排按钮直接跳转，用右上角 <code>READER</code>
+          换成滚动式排版，或 <code>CLASSIC SITE</code> 回到原来的学术主页。</div>
+      </div>
+    </div>
+
+    <div class="chips">
+      <button class="chip big" data-cmd="whoami">whoami · 他是谁</button>
+      <button class="chip big" data-cmd="pub">pub · ${PAPERS.length} 篇论文</button>
+      <button class="chip big" data-cmd="exp">exp · ${EXPERIENCE.length} 段经历</button>
+      <button class="chip big" data-cmd="blog">blog · ${POSTS.length} 篇文章</button>
+      <button class="chip big" data-cmd="ask 用一段话介绍他最近的研究重点">ask · 问 AI</button>
+      <button class="chip big" data-cmd="reader">reader · 阅读视图</button>
+    </div>
+
+    <div class="point-down"><span class="arw">▼</span> 光标已经在下面的输入框里了，直接开始输入</div>`,
+    { sub: "可交互的个人主页", meta: new Date().toISOString().slice(0, 10) });
+
+  const q = new URLSearchParams(location.search).get("c");
+  if (q) exec(q);
+  input.focus();
+}
+
+/* 模块内的 const 不会挂到 window，冒烟测试和浏览器控制台都够不着，
+   显式开一个出口（tools/smoke-test.mjs 依赖它）。 */
+window.__term = {
+  exec, openReader, TOOLS, PIX, CMD, ORDER, CHAT, LLM, FULLTEXT,
+  PAPERS, POSTS, PROJECTS, EXPERIENCE, SCHOLAR,
+  sysPrompt, knowledge, pushContext, turns,
+  get agentEnabled() { return agentEnabled; }
+};
+
+boot();
+</script>
+</body>
+</html>
