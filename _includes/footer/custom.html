@@ -18,8 +18,18 @@
 </script>
 
 
-<script src="https://cdn1.lncld.net/static/js/av-min-1.5.0.js"></script>
-<script src="https://jerryz.sgp1.cdn.digitaloceanspaces.com/lib/hit-kounter/hit-kounter-lc-0.3.0.js"></script>
+<!--
+  已移除两个失效的同步脚本（2026-09 排查页面打不开时定位到）：
+    https://cdn1.lncld.net/static/js/av-min-1.5.0.js
+    https://jerryz.sgp1.cdn.digitaloceanspaces.com/lib/hit-kounter/hit-kounter-lc-0.3.0.js
+  这两个域名的 DNS 已经无法解析，而它们没有 async/defer，会阻塞 HTML 解析，
+  浏览器要一直等到连接超时（几十秒）才继续渲染，表现就是「主页打不开」。
+  站内没有任何元素依赖它们（LeanCloud 计数器的容器早已不存在），
+  访问统计实际由 busuanzi 提供，见 _pages/about.md。
+
+  今后引入任何第三方脚本，务必加 defer 或 async，否则对方一挂就会拖垮整站。
+-->
+{% comment %} intentionally left without external blocking scripts {% endcomment %}
 
 
 <style type="text/css">
